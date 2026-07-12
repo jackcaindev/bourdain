@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = Field(
         description="Anthropic API key used for Claude model calls."
     )
+    openai_api_key: SecretStr = Field(
+        description="OpenAI API key used for embeddings."
+    )
+    tavily_api_key: SecretStr = Field(
+        description="Tavily API key used for web research."
+    )
+    database_url: SecretStr = Field(
+        description="Postgres connection string for application storage."
+    )
     anthropic_timeout_seconds: float = Field(
         default=30.0,
         gt=0,
@@ -31,6 +40,9 @@ class Settings(BaseSettings):
 
 _ENV_VAR_NAMES = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "openai_api_key": "OPENAI_API_KEY",
+    "tavily_api_key": "TAVILY_API_KEY",
+    "database_url": "DATABASE_URL",
     "anthropic_timeout_seconds": "ANTHROPIC_TIMEOUT_SECONDS",
 }
 
