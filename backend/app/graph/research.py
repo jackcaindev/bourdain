@@ -1,0 +1,267 @@
+"""Per-category retrieval, CRAG grading, and web fallback node."""
+
+import json
+import logging
+from typing import Any
+from uuid import uuid4
+
+from pydantic import BaseModel, TypeAdapter
+
+from app.models.schemas import Candidate, Category, GradedCandidate
+from app.services.embeddings import create_embeddings
+from app.services.llm import call_forced_tool
+from app.services.vector_store import create_pool, query_nearest_neighbors
+from app.graph.web_fallback_agent import run_web_fallback_agent
+
+
+logger = logging.getLogger(__name__)
+
+RESEARCH_MODEL = "claude-sonnet-4-6"
+
+
+class ResearchCategoryError(RuntimeError):
+    """Raised when a category cannot complete research and grading."""
+
+
+class _Grade(BaseModel):
+    candidate_id: str
+    relevance_score: float
+    authenticity_signal: str
+    confidence: str
+    needs_fallback: bool
+
+
+_GRADE_LIST_ADAPTER = TypeAdapter(list[_Grade])
+
+
+def _grading_tool_schema(candidate_count: int) -> dict[str, Any]:
+    return {
+        "name": "grade_research_candidates",
+        "description": "Grades every supplied candidate individually.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "grades": {
+                    "type": "array",
+                    "minItems": candidate_count,
+                    "maxItems": candidate_count,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "candidate_id": {"type": "string"},
+                            "relevance_score": {"type": "number", "minimum": 0, "maximum": 1},
+                            "authenticity_signal": {"type": "string"},
+                            "confidence": {
+                                "type": "string",
+                                "enum": ["low", "medium", "high"],
+                            },
+                            "needs_fallback": {"type": "boolean"},
+                        },
+                        "required": [
+                            "candidate_id",
+                            "relevance_score",
+                            "authenticity_signal",
+                            "confidence",
+                            "needs_fallback",
+                        ],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["grades"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def _grade_candidates(
+    category: Category, candidates: list[Candidate]
+) -> list[GradedCandidate]:
+    payload = [candidate.model_dump(mode="json") for candidate in candidates]
+    last_error: Exception | None = None
+
+    for attempt in range(2):
+        try:
+            tool_input = call_forced_tool(
+                system_prompt=(
+                    "You are the CRAG grader for The Bourdain Brief. Assess every "
+                    "candidate independently for relevance and authentic, specific, "
+                    "locally grounded signal; do not merely rank candidates against "
+                    "one another. Echo each candidate's id exactly in candidate_id so "
+                    "every grade can be matched unambiguously to its candidate. Mark "
+                    "needs_fallback when that candidate lacks sufficient credible "
+                    "evidence and broader web research is warranted. Use the tool once."
+                ),
+                user_prompt=(
+                    f"Category: {category.name}\nRationale: {category.rationale}\n\n"
+                    f"Candidates:\n{json.dumps(payload, ensure_ascii=False)}"
+                ),
+                tool_schema=_grading_tool_schema(len(candidates)),
+                model=RESEARCH_MODEL,
+                max_tokens=2000,
+            )
+            grades = _GRADE_LIST_ADAPTER.validate_python(tool_input["grades"])
+            candidates_by_id = {candidate.id: candidate for candidate in candidates}
+            if len(candidates_by_id) != len(candidates):
+                raise ValueError("candidate batch contains duplicate candidate ids")
+
+            grades_by_id: dict[str, _Grade] = {}
+            for grade in grades:
+                if grade.candidate_id not in candidates_by_id:
+                    raise ValueError(
+                        "grader returned unknown candidate_id "
+                        f"'{grade.candidate_id}'"
+                    )
+                if grade.candidate_id in grades_by_id:
+                    raise ValueError(
+                        "grader returned duplicate grade for candidate_id "
+                        f"'{grade.candidate_id}'"
+                    )
+                grades_by_id[grade.candidate_id] = grade
+
+            missing_ids = candidates_by_id.keys() - grades_by_id.keys()
+            if missing_ids:
+                raise ValueError(
+                    "grader omitted grades for candidate_id(s): "
+                    f"{', '.join(sorted(missing_ids))}"
+                )
+
+            return [
+                GradedCandidate(
+                    **candidate.model_dump(),
+                    **grades_by_id[candidate.id].model_dump(exclude={"candidate_id"}),
+                )
+                for candidate in candidates
+            ]
+        except Exception as exc:
+            last_error = exc
+            if attempt == 0:
+                logger.warning(
+                    "research_grader_retry_attempt",
+                    extra={
+                        "category": category.name,
+                        "candidate_count": len(candidates),
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+
+    raise ResearchCategoryError(
+        f"CRAG grading failed for category '{category.name}' after one retry."
+    ) from last_error
+
+
+async def research_category(category: Category) -> dict[str, list[GradedCandidate]]:
+    """Retrieve and grade candidates for one Send API category invocation."""
+
+    logger.info(
+        "research_category_start",
+        extra={"category": category.name, "candidate_count": 0},
+    )
+    query = f"{category.name}: {category.rationale}"
+    pool = None
+
+    try:
+        try:
+            query_embedding = create_embeddings([query])[0]
+        except Exception as exc:
+            raise ResearchCategoryError(
+                f"Embedding failed for category '{category.name}'."
+            ) from exc
+
+        try:
+            pool = await create_pool()
+            results = await query_nearest_neighbors(
+                pool, query_embedding=query_embedding, top_k=5
+            )
+        except Exception as exc:
+            raise ResearchCategoryError(
+                f"Vector retrieval failed for category '{category.name}'."
+            ) from exc
+
+        candidates = [
+            Candidate(
+                id=str(result.id),
+                name=result.name,
+                category=category.name,
+                description=result.content,
+                source="vector_store",
+                source_url=(
+                    result.metadata.get("source_url", result.metadata.get("url"))
+                    if isinstance(
+                        result.metadata.get("source_url", result.metadata.get("url")),
+                        str,
+                    )
+                    else None
+                ),
+                raw_signal=result.content,
+            )
+            for result in results
+        ]
+        logger.info(
+            "research_retrieval_complete",
+            extra={"category": category.name, "candidate_count": len(candidates)},
+        )
+
+        graded = _grade_candidates(category, candidates)
+        logger.info(
+            "research_grading_complete",
+            extra={
+                "category": category.name,
+                "candidate_count": len(graded),
+                "fallback_count": sum(item.needs_fallback for item in graded),
+            },
+        )
+
+        fallback_triggered = any(item.needs_fallback for item in graded)
+        logger.info(
+            "research_fallback_decision",
+            extra={
+                "category": category.name,
+                "candidate_count": len(graded),
+                "fallback_triggered": fallback_triggered,
+            },
+        )
+        if fallback_triggered:
+            try:
+                web_results = await run_web_fallback_agent(category)
+            except Exception as exc:
+                raise ResearchCategoryError(
+                    f"Web fallback failed for category '{category.name}'."
+                ) from exc
+            candidates.extend(
+                Candidate(
+                    id=str(uuid4()),
+                    name=result.title,
+                    category=category.name,
+                    description=result.content,
+                    source="web_search",
+                    source_url=result.url,
+                    raw_signal=result.content,
+                )
+                for result in web_results
+            )
+            graded = _grade_candidates(category, candidates)
+            logger.info(
+                "research_grading_complete",
+                extra={
+                    "category": category.name,
+                    "candidate_count": len(graded),
+                    "fallback_count": sum(item.needs_fallback for item in graded),
+                    "post_fallback": True,
+                },
+            )
+
+        logger.info(
+            "research_category_complete",
+            extra={
+                "category": category.name,
+                "candidate_count": len(graded),
+                "fallback_triggered": fallback_triggered,
+            },
+        )
+        return {"candidates": graded}
+    finally:
+        if pool is not None:
+            await pool.close()
