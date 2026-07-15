@@ -5,6 +5,8 @@ export const recommendation: ScoredRecommendation = {
   name: 'Cafe Local',
   category: 'Food',
   description: 'A neighborhood cafe.',
+  lat: 41.1579,
+  lng: -8.6291,
   source: 'web_search',
   source_url: 'https://example.com/cafe',
   raw_signal: 'Specific local evidence.',
@@ -17,6 +19,14 @@ export const recommendation: ScoredRecommendation = {
   locally_owned_signal: 'Family operated.',
   passed_guardrail: true,
   guardrail_note: null,
+}
+
+export const marketRecommendation: ScoredRecommendation = {
+  ...recommendation,
+  id: 'rec-2',
+  name: 'Night Market',
+  category: 'Markets',
+  description: 'An evening market of independent food stalls.',
 }
 
 export const itineraryDay: ItineraryDay = {

@@ -4,9 +4,7 @@ import operator
 from typing import Annotated, TypedDict
 
 from app.models.schemas import (
-    Candidate,
     Category,
-    GradedCandidate,
     ItineraryDay,
     ScoredRecommendation,
 )
@@ -28,12 +26,8 @@ class BriefState(TypedDict):
     research_iteration: int
     # Replacement-only categories drive the bounded re-plan Send fan-out.
     replan_categories: list[Category]
-    # Candidate lists from Send API branches are appended into one shared collection.
-    candidates: Annotated[list[Candidate], operator.add]
-    # Graded candidates retain discovery history plus grader judgment for scoring.
-    graded_candidates: list[GradedCandidate]
-    # Scored recommendations hold the final ranked options before user review and assembly.
-    scored_recommendations: list[ScoredRecommendation]
+    # Scored recommendation lists from Send branches append into one shared collection.
+    scored_recommendations: Annotated[list[ScoredRecommendation], operator.add]
     # User selections are absent until HITL resume provides the candidate ids to keep.
     user_selections: list[str] | None
     # The itinerary is absent until final assembly converts selected recommendations into days.

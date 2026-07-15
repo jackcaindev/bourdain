@@ -199,14 +199,15 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
     @patch("app.graph.research.create_embeddings")
     async def test_cache_hit_returns_early(self, embed, query, grade):
-        cached = [_scored_recommendation()]
+        cached = [_scored_recommendation(source="web_search")]
         self.get_cached_recommendations.return_value = cached
 
         result = await research_category(
             self.category, city_slug="test-city", city_name="Test City"
         )
 
-        self.assertEqual(result["scored_recommendations"], cached)
+        self.assertEqual(result["scored_recommendations"][0].source, "cache")
+        self.assertEqual(cached[0].source, "web_search")
         embed.assert_not_called()
         query.assert_not_called()
         grade.assert_not_called()

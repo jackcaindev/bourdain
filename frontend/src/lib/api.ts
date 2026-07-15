@@ -1,4 +1,9 @@
-import type { BriefRequest, ResumeRequest, SessionResponse } from './types'
+import type {
+  BriefRequest,
+  BriefStatePayload,
+  ResumeRequest,
+  SessionResponse,
+} from './types'
 
 const configuredBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -10,6 +15,23 @@ async function postJson<TResponse>(path: string, body: unknown): Promise<TRespon
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}`
+    try {
+      const body = (await response.json()) as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch {
+      // The status-based message is sufficient when the body is not JSON.
+    }
+    throw new Error(detail)
+  }
+
+  return (await response.json()) as TResponse
+}
+
+async function getJson<TResponse>(path: string): Promise<TResponse> {
+  const response = await fetch(`${API_BASE_URL}${path}`)
 
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`
@@ -41,10 +63,18 @@ export function startBrief(
 export function resumeBrief(
   sessionId: string,
   userSelections: string[],
+  resumeType: 'categories' | 'venues',
 ): Promise<SessionResponse> {
-  const body: ResumeRequest = { user_selections: userSelections }
+  const body: ResumeRequest = {
+    user_selections: userSelections,
+    resume_type: resumeType,
+  }
   return postJson(
     `/api/brief/${encodeURIComponent(sessionId)}/resume`,
     body,
   )
+}
+
+export function fetchBriefState(sessionId: string): Promise<BriefStatePayload> {
+  return getJson(`/api/brief/${encodeURIComponent(sessionId)}/state`)
 }

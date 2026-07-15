@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
+
 from app.api.routes import (
     ResumeRequest,
     SessionEntry,
@@ -11,18 +13,27 @@ from app.api.routes import (
     _run_graph,
     _sessions,
     _to_sse_event,
+    get_brief_state,
     resume_brief,
 )
-from app.models.schemas import ItineraryPayload, ScoredRecommendation
+from app.models.schemas import (
+    CacheHitPayload,
+    Category,
+    ItineraryDay,
+    ItineraryPayload,
+    ScoredRecommendation,
+)
 
 
-def _recommendation(identifier: str = "one") -> ScoredRecommendation:
+def _recommendation(
+    identifier: str = "one", *, source: str = "web_search"
+) -> ScoredRecommendation:
     return ScoredRecommendation(
         id=identifier,
         name="Cafe Local",
         category="Food",
         description="A neighborhood cafe.",
-        source="web_search",
+        source=source,
         source_url="https://example.com/cafe",
         raw_signal="Specific local evidence.",
         relevance_score=0.9,
@@ -38,6 +49,31 @@ def _recommendation(identifier: str = "one") -> ScoredRecommendation:
 
 
 class SSEConversionTests(TestCase):
+    def test_research_category_cache_hit_carries_cache_payload(self):
+        recommendation = _recommendation(source="cache")
+        event = _to_sse_event(
+            {
+                "event": "on_chain_end",
+                "name": "research_category",
+                "data": {
+                    "output": {
+                        "scored_recommendations": [
+                            recommendation.model_dump(mode="json")
+                        ]
+                    }
+                },
+            }
+        )
+
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.event_type, "node_complete")
+        self.assertIsInstance(event.payload, CacheHitPayload)
+        self.assertEqual(
+            event.message,
+            "Already know this one. Pulled 1 from the files.",
+        )
+
     def test_itinerary_completion_carries_days(self):
         recommendation = _recommendation()
         event = _to_sse_event(
@@ -130,6 +166,7 @@ class SSEStreamTests(IsolatedAsyncioTestCase):
             )
         )
         await entry.queue.put(pause)
+        await entry.queue.put(None)
 
         events = [event async for event in _event_generator(session_id)]
 
@@ -140,11 +177,16 @@ class SSEStreamTests(IsolatedAsyncioTestCase):
         session_id = "resumed-stream"
         _sessions[session_id] = SessionEntry()
         graph = SimpleNamespace(
-            astream_events=lambda *args, **kwargs: _itinerary_events()
+            astream_events=lambda *args, **kwargs: _itinerary_events(),
+            aget_state=AsyncMock(return_value=SimpleNamespace(
+                next=(),
+                tasks=(),
+                values={},
+            )),
         )
 
         with patch("app.api.routes._graph", graph):
-            await _resume_graph(session_id, ["one"])
+            await _resume_graph(session_id, ["one"], "venues")
 
         completion = await _sessions[session_id].queue.get()
         terminal = await _sessions[session_id].queue.get()
@@ -157,11 +199,93 @@ class SSEStreamTests(IsolatedAsyncioTestCase):
         _sessions[session_id] = SessionEntry()
         with patch("app.api.routes.asyncio.create_task") as create_task:
             response = await resume_brief(
-                session_id, ResumeRequest(user_selections=["one"])
+                session_id, ResumeRequest(user_selections=["one"], resume_type="venues")
             )
         create_task.call_args.args[0].close()
 
         self.assertEqual(response.session_id, session_id)
+
+
+class BriefStateTests(IsolatedAsyncioTestCase):
+    async def test_unknown_session_returns_404(self):
+        graph = SimpleNamespace(
+            aget_state=AsyncMock(
+                return_value=SimpleNamespace(values={}, next=(), tasks=())
+            )
+        )
+
+        with patch("app.api.routes._graph", graph):
+            with self.assertRaises(HTTPException) as raised:
+                await get_brief_state("unknown")
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail, "Session not found")
+
+    async def test_category_select_returns_categories(self):
+        categories = [Category(name="Food", rationale="Follow local rituals.")]
+        snapshot = SimpleNamespace(
+            next=("category_select",),
+            tasks=(
+                SimpleNamespace(name="category_select", interrupts=(object(),)),
+            ),
+            values={"categories": categories, "selected_categories": None},
+        )
+        graph = SimpleNamespace(aget_state=AsyncMock(return_value=snapshot))
+
+        with patch("app.api.routes._graph", graph):
+            response = await get_brief_state("category-session")
+
+        self.assertEqual(response.phase, "category_select")
+        self.assertEqual(response.categories, categories)
+        self.assertIsNone(response.selected_categories)
+
+    async def test_venue_select_returns_recommendations(self):
+        selected = Category(name="Food", rationale="Follow local rituals.")
+        recommendations = [_recommendation()]
+        snapshot = SimpleNamespace(
+            next=("select_recommendations",),
+            tasks=(
+                SimpleNamespace(
+                    name="select_recommendations", interrupts=(object(),)
+                ),
+            ),
+            values={
+                "selected_categories": [selected],
+                "scored_recommendations": recommendations,
+            },
+        )
+        graph = SimpleNamespace(aget_state=AsyncMock(return_value=snapshot))
+
+        with patch("app.api.routes._graph", graph):
+            response = await get_brief_state("venue-session")
+
+        self.assertEqual(response.phase, "venue_select")
+        self.assertEqual(response.selected_categories, ["Food"])
+        self.assertEqual(response.recommendations, recommendations)
+
+    async def test_completed_session_returns_itinerary(self):
+        itinerary = [
+            ItineraryDay(
+                day_number=1,
+                neighborhood_focus="Centro",
+                breakfast=_recommendation(),
+                lunch=None,
+                dinner=None,
+                activities=[],
+            )
+        ]
+        snapshot = SimpleNamespace(
+            next=(),
+            tasks=(),
+            values={"itinerary": itinerary},
+        )
+        graph = SimpleNamespace(aget_state=AsyncMock(return_value=snapshot))
+
+        with patch("app.api.routes._graph", graph):
+            response = await get_brief_state("completed-session")
+
+        self.assertEqual(response.phase, "itinerary")
+        self.assertEqual(response.itinerary_days, itinerary)
 
 
 async def _empty_events():

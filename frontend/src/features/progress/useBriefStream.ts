@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   BriefEventStream,
   type BriefEventStreamCallbacks,
@@ -7,9 +7,10 @@ import {
 export function useBriefStream(
   sessionId: string | undefined,
   callbacks: BriefEventStreamCallbacks,
-): void {
+): () => void {
   const callbacksRef = useRef(callbacks)
   const connectionRef = useRef<BriefEventStream | null>(null)
+  const openedSessionIdRef = useRef<string | null>(null)
   const setupTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -21,11 +22,19 @@ export function useBriefStream(
 
     let cancelled = false
     setupTimerRef.current = window.setTimeout(() => {
-      if (cancelled || connectionRef.current) return
+      if (
+        cancelled ||
+        connectionRef.current ||
+        openedSessionIdRef.current === sessionId
+      ) return
+      openedSessionIdRef.current = sessionId
       connectionRef.current = new BriefEventStream(sessionId, {
         onEvent: (event) => callbacksRef.current.onEvent(event),
         onError: () => callbacksRef.current.onError(),
-        onClose: () => callbacksRef.current.onClose(),
+        onClose: () => {
+          openedSessionIdRef.current = null
+          callbacksRef.current.onClose()
+        },
       })
     }, 0)
 
@@ -37,6 +46,16 @@ export function useBriefStream(
       }
       connectionRef.current?.close()
       connectionRef.current = null
+      openedSessionIdRef.current = null
     }
   }, [sessionId])
+
+  return useCallback(() => {
+    if (setupTimerRef.current !== null) {
+      window.clearTimeout(setupTimerRef.current)
+      setupTimerRef.current = null
+    }
+    connectionRef.current?.close()
+    connectionRef.current = null
+  }, [])
 }

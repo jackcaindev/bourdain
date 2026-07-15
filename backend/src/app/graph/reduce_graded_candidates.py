@@ -1,51 +1,47 @@
-"""Deterministic reduction of accumulated research candidates."""
+"""Deterministic reduction of accumulated scored recommendations."""
 
 import logging
 
+from langgraph.types import Overwrite
+
 from app.graph.state import BriefState
-from app.models.schemas import GradedCandidate
+from app.models.schemas import ScoredRecommendation
 
 
 logger = logging.getLogger(__name__)
 
 
-def reduce_graded_candidates(
+def reduce_scored_recommendations(
     state: BriefState,
-) -> dict[str, list[GradedCandidate]]:
-    """Expose only graded candidates belonging to the current categories."""
+) -> dict[str, Overwrite]:
+    """Deduplicate scored recommendations belonging to current categories."""
 
     category_names = {category.name for category in state["categories"]}
     retained = [
-        candidate
-        for candidate in state["candidates"]
-        if candidate.category in category_names
+        recommendation
+        for recommendation in state["scored_recommendations"]
+        if recommendation.category in category_names
     ]
 
-    for candidate in retained:
-        if not isinstance(candidate, GradedCandidate):
-            raise TypeError(
-                "reduce_graded_candidates expected every retained candidate to be "
-                f"a GradedCandidate; candidate '{candidate.id}' is "
-                f"{type(candidate).__name__}."
-            )
-
-    unique_candidates: list[GradedCandidate] = []
+    unique_recommendations: list[ScoredRecommendation] = []
     seen_ids: set[str] = set()
-    for candidate in retained:
-        if candidate.id in seen_ids:
+    for recommendation in retained:
+        if recommendation.id in seen_ids:
             continue
-        # A multi-category candidate keeps its first label: a deliberate v1 simplification.
-        seen_ids.add(candidate.id)
-        unique_candidates.append(candidate)
+        # A multi-category recommendation keeps its first label in v1.
+        seen_ids.add(recommendation.id)
+        unique_recommendations.append(recommendation)
 
-    duplicate_count = len(retained) - len(unique_candidates)
+    duplicate_count = len(retained) - len(unique_recommendations)
     logger.info(
-        "reduce_graded_candidates_complete",
+        "reduce_scored_recommendations_complete",
         extra={
-            "candidate_count_before_dedup": len(retained),
+            "recommendation_count_before_dedup": len(retained),
             "duplicate_count": duplicate_count,
-            "candidate_count_after_dedup": len(unique_candidates),
+            "recommendation_count_after_dedup": len(unique_recommendations),
         },
     )
 
-    return {"graded_candidates": unique_candidates}
+    return {
+        "scored_recommendations": Overwrite(value=unique_recommendations)
+    }

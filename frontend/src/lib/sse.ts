@@ -31,7 +31,6 @@ export class BriefEventStream {
       try {
         const event = JSON.parse(messageEvent.data) as SSEEvent
         this.callbacks.onEvent(event)
-        if (event.event_type === 'hitl_pause') this.close()
       } catch {
         this.callbacks.onError()
         this.close()

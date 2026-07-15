@@ -5,11 +5,11 @@ from app.graph.supervisor_replan import (
     SUPERVISOR_REPLAN_MODEL,
     supervisor_replan_check,
 )
-from app.models.schemas import Category, GradedCandidate
+from app.models.schemas import Category, ScoredRecommendation
 
 
-def _candidate(candidate_id: str, category: str) -> GradedCandidate:
-    return GradedCandidate(
+def _candidate(candidate_id: str, category: str) -> ScoredRecommendation:
+    return ScoredRecommendation(
         id=candidate_id,
         name=candidate_id,
         category=category,
@@ -20,6 +20,11 @@ def _candidate(candidate_id: str, category: str) -> GradedCandidate:
         authenticity_signal="Thin signal",
         confidence="low",
         needs_fallback=True,
+        bourdain_score=2,
+        scoring_rationale="Thin local fit",
+        locally_owned_signal=None,
+        passed_guardrail=True,
+        guardrail_note=None,
     )
 
 
@@ -31,7 +36,7 @@ def _state(*, iteration: int = 0):
             Category(name="Food", rationale="Local restaurants"),
             Category(name="Beaches", rationale="Coastal experiences"),
         ],
-        "graded_candidates": [_candidate("food-one", "Food")],
+        "scored_recommendations": [_candidate("food-one", "Food")],
         "research_iteration": iteration,
     }
 
@@ -55,7 +60,10 @@ class SupervisorReplanTests(TestCase):
         )
         self.assertEqual(forced_tool.call_args.kwargs["model"], SUPERVISOR_REPLAN_MODEL)
         self.assertIn('"name": "Beaches"', forced_tool.call_args.kwargs["user_prompt"])
-        self.assertIn('"graded_candidates": []', forced_tool.call_args.kwargs["user_prompt"])
+        self.assertIn(
+            '"scored_recommendations": []',
+            forced_tool.call_args.kwargs["user_prompt"],
+        )
 
     @patch("app.graph.supervisor_replan.call_forced_tool")
     def test_replaces_category_and_exposes_only_new_category(self, forced_tool):

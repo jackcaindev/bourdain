@@ -1,70 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
-import {
-  isHitlPayload,
-  isItineraryPayload,
-  type SSEEvent,
-} from '../../lib/types'
+import { Link, useParams } from 'react-router'
 import { useBriefStore } from '../../store'
 import { ProgressEvent } from './ProgressEvent'
-import { useBriefStream } from './useBriefStream'
-
-type ReceivedEvent = {
-  id: number
-  event: SSEEvent
-  receivedAt: Date
-}
 
 export function ProgressFeed() {
   const { sessionId } = useParams()
-  const navigate = useNavigate()
-  const setSessionId = useBriefStore((state) => state.setSessionId)
-  const setRecommendations = useBriefStore((state) => state.setRecommendations)
-  const setItineraryDays = useBriefStore((state) => state.setItineraryDays)
-  const [events, setEvents] = useState<ReceivedEvent[]>([])
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (sessionId) setSessionId(sessionId)
-  }, [sessionId, setSessionId])
-
-  useBriefStream(sessionId, {
-    onEvent: (incomingEvent) => {
-      setEvents((current) => [
-        ...current,
-        {
-          id: current.length,
-          event: incomingEvent,
-          receivedAt: new Date(),
-        },
-      ])
-
-      if (
-        incomingEvent.event_type === 'hitl_pause' &&
-        isHitlPayload(incomingEvent.payload) &&
-        sessionId
-      ) {
-        setRecommendations(incomingEvent.payload.recommendations)
-        navigate(`/brief/${encodeURIComponent(sessionId)}/select`)
-      }
-
-      if (
-        incomingEvent.event_type === 'node_complete' &&
-        incomingEvent.node_name === 'assemble_itinerary' &&
-        isItineraryPayload(incomingEvent.payload) &&
-        sessionId
-      ) {
-        setItineraryDays(incomingEvent.payload.days)
-        navigate(`/brief/${encodeURIComponent(sessionId)}/itinerary`)
-      }
-
-      if (incomingEvent.event_type === 'error') {
-        setError(incomingEvent.message)
-      }
-    },
-    onError: () => setError('The live connection was interrupted.'),
-    onClose: () => undefined,
-  })
+  const progressEvents = useBriefStore((state) => state.progressEvents)
+  const streamError = useBriefStore((state) => state.streamError)
 
   if (!sessionId) {
     return <RecoveryState message="This brief has no session identifier." />
@@ -78,14 +19,18 @@ export function ProgressFeed() {
         <p>Dispatches arrive as the research desk works.</p>
       </header>
 
-      {error && <div className="error-panel" role="alert">{error}</div>}
+      {streamError && <div className="error-panel" role="alert">{streamError}</div>}
 
       <ol className="progress-feed" aria-live="polite">
-        {events.map((receivedEvent) => (
-          <ProgressEvent key={receivedEvent.id} {...receivedEvent} />
+        {progressEvents.map((entry, index) => (
+          <ProgressEvent
+            key={index}
+            event={entry.event}
+            receivedAt={new Date(entry.receivedAt)}
+          />
         ))}
       </ol>
-      {!error && <p className="feed-status">CONNECTION OPEN<span aria-hidden="true" /></p>}
+      {!streamError && <p className="feed-status">CONNECTION OPEN<span aria-hidden="true" /></p>}
     </main>
   )
 }

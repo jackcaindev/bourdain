@@ -12,20 +12,20 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send, interrupt
 
 from app.config import get_settings
-from app.graph.guardrails import guardrail_node
+from app.graph.city_profile_node import city_profile_node
 from app.graph.itinerary import assemble_itinerary
-from app.graph.reduce_graded_candidates import reduce_graded_candidates
+from app.graph.reduce_graded_candidates import reduce_scored_recommendations
 from app.graph.research import research_category
-from app.graph.scoring import scoring_node
 from app.graph.state import BriefState
-from app.graph.supervisor import supervisor_node
 from app.graph.supervisor_replan import supervisor_replan_check
-from app.models.schemas import Category
+from app.models.schemas import Category, CategoryListPayload, HitlPayload
 from app.services.vector_store import close_shared_pool
 
 
 class _ResearchInput(TypedDict):
     category: Category
+    city_slug: str
+    destination: str
 
 
 def _checkpoint_serializer() -> JsonPlusSerializer:
@@ -43,43 +43,64 @@ def _checkpoint_serializer() -> JsonPlusSerializer:
     )
 
 
-def _supervisor_adapter(state: BriefState) -> dict[str, Any]:
-    return supervisor_node(state) | {
-        "research_iteration": 0,
-        "replan_categories": [],
-    }
-
-
 async def _research_category_adapter(
     state: _ResearchInput,
 ) -> dict[str, Any]:
-    return await research_category(state["category"])
+    return await research_category(
+        state["category"],
+        city_slug=state["city_slug"],
+        city_name=state["destination"],
+    )
+
+
+def _category_select(state: BriefState) -> dict[str, list[Category]]:
+    selected_names = interrupt(CategoryListPayload(categories=state["categories"]))
+    if not isinstance(selected_names, list) or not all(
+        isinstance(name, str) for name in selected_names
+    ):
+        raise ValueError("HITL resume value must be a list of category names")
+    return {
+        "selected_categories": [
+            category
+            for category in state["categories"]
+            if category.name in selected_names
+        ]
+    }
 
 
 def _dispatch_initial_research(state: BriefState) -> list[Send]:
     return [
-        Send("research_category", {"category": category})
-        for category in state["categories"]
+        Send(
+            "research_category",
+            {
+                "category": category,
+                "city_slug": state["city_slug"],
+                "destination": state["destination"],
+            },
+        )
+        for category in state["selected_categories"] or []
     ]
 
 
 def _route_after_replan(state: BriefState) -> list[Send] | str:
     if state["replan_categories"]:
         return [
-            Send("research_category", {"category": category})
+            Send(
+                "research_category",
+                {
+                    "category": category,
+                    "city_slug": state["city_slug"],
+                    "destination": state["destination"],
+                },
+            )
             for category in state["replan_categories"]
         ]
-    return "scoring_node"
+    return "select_recommendations"
 
 
 def _select_recommendations(state: BriefState) -> dict[str, list[str]]:
     selections = interrupt(
-        {
-            "recommendations": [
-                recommendation.model_dump(mode="json")
-                for recommendation in state["scored_recommendations"]
-            ]
-        }
+        HitlPayload(recommendations=state["scored_recommendations"])
     )
     if not isinstance(selections, list) or not all(
         isinstance(selection, str) for selection in selections
@@ -102,30 +123,28 @@ def compile_graph(checkpointer: BaseCheckpointSaver[Any]) -> CompiledStateGraph:
     """Compile the complete graph with a caller-owned checkpointer."""
 
     graph = StateGraph(BriefState)
-    graph.add_node("supervisor", _supervisor_adapter)
+    graph.add_node("city_profile_node", city_profile_node)
+    graph.add_node("category_select", _category_select)
     graph.add_node("research_category", _research_category_adapter)
-    graph.add_node("reduce_graded_candidates", reduce_graded_candidates)
+    graph.add_node("reduce_scored_recommendations", reduce_scored_recommendations)
     graph.add_node("supervisor_replan_check", supervisor_replan_check)
-    graph.add_node("scoring_node", scoring_node)
-    graph.add_node("guardrail_node", guardrail_node)
     graph.add_node("select_recommendations", _select_recommendations)
     graph.add_node("assemble_itinerary", assemble_itinerary)
 
-    graph.add_edge(START, "supervisor")
+    graph.add_edge(START, "city_profile_node")
+    graph.add_edge("city_profile_node", "category_select")
     graph.add_conditional_edges(
-        "supervisor",
+        "category_select",
         _dispatch_initial_research,
         ["research_category"],
     )
-    graph.add_edge("research_category", "reduce_graded_candidates")
-    graph.add_edge("reduce_graded_candidates", "supervisor_replan_check")
+    graph.add_edge("research_category", "reduce_scored_recommendations")
+    graph.add_edge("reduce_scored_recommendations", "supervisor_replan_check")
     graph.add_conditional_edges(
         "supervisor_replan_check",
         _route_after_replan,
-        ["research_category", "scoring_node"],
+        ["research_category", "select_recommendations"],
     )
-    graph.add_edge("scoring_node", "guardrail_node")
-    graph.add_edge("guardrail_node", "select_recommendations")
     graph.add_edge("select_recommendations", "assemble_itinerary")
     graph.add_edge("assemble_itinerary", END)
 

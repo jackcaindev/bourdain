@@ -1,7 +1,10 @@
-import { BrowserRouter, Link, Outlet, Route, Routes } from 'react-router'
+import { BrowserRouter, Link, Route, Routes } from 'react-router'
 import { ItineraryView } from './features/itinerary/ItineraryView'
 import { KickoffForm } from './features/kickoff/KickoffForm'
+import { BriefRecoveryGate } from './features/progress/BriefRecoveryGate'
+import { BriefStreamProvider } from './features/progress/BriefStreamProvider'
 import { ProgressFeed } from './features/progress/ProgressFeed'
+import { CategorySelectionScreen } from './features/selection/CategorySelectionScreen'
 import { SelectionScreen } from './features/selection/SelectionScreen'
 
 function BriefLayout() {
@@ -11,7 +14,8 @@ function BriefLayout() {
         <Link to="/">The Bourdain Brief</Link>
         <span>TRAVEL, WITHOUT THE TOURIST GLOSS</span>
       </header>
-      <Outlet />
+      <BriefStreamProvider />
+      <BriefRecoveryGate />
     </div>
   )
 }
@@ -23,6 +27,7 @@ export default function App() {
         <Route element={<BriefLayout />}>
           <Route index element={<KickoffForm />} />
           <Route path="brief/:sessionId/progress" element={<ProgressFeed />} />
+          <Route path="brief/:sessionId/categories" element={<CategorySelectionScreen />} />
           <Route path="brief/:sessionId/select" element={<SelectionScreen />} />
           <Route path="brief/:sessionId/itinerary" element={<ItineraryView />} />
         </Route>

@@ -11,12 +11,12 @@ from app.graph.build import (
     build_graph,
     compile_graph,
 )
-from app.models.schemas import Category, GradedCandidate, ScoredRecommendation
+from app.models.schemas import Category, ScoredRecommendation
 from app.api.routes import _hitl_event_from_snapshot
 
 
-def _graded(category: str) -> GradedCandidate:
-    return GradedCandidate(
+def _scored(category: str) -> ScoredRecommendation:
+    return ScoredRecommendation(
         id=f"{category}-id",
         name=f"{category} place",
         category=category,
@@ -27,12 +27,6 @@ def _graded(category: str) -> GradedCandidate:
         authenticity_signal="Locally grounded",
         confidence="high",
         needs_fallback=False,
-    )
-
-
-def _scored(candidate: GradedCandidate) -> ScoredRecommendation:
-    return ScoredRecommendation(
-        **candidate.model_dump(),
         bourdain_score=4,
         scoring_rationale="Grounded local recommendation.",
         locally_owned_signal=None,
@@ -48,7 +42,13 @@ class GraphRoutingTests(TestCase):
             Category(name="Markets", rationale="Market rationale"),
         ]
 
-        sends = _dispatch_initial_research({"categories": categories})
+        sends = _dispatch_initial_research(
+            {
+                "selected_categories": categories,
+                "city_slug": "porto",
+                "destination": "Porto",
+            }
+        )
 
         self.assertTrue(all(isinstance(item, Send) for item in sends))
         self.assertEqual([item.arg["category"] for item in sends], categories)
@@ -56,10 +56,17 @@ class GraphRoutingTests(TestCase):
     def test_replan_dispatches_only_replacements_or_scores(self):
         replacement = Category(name="History", rationale="History rationale")
 
-        sends = _route_after_replan({"replan_categories": [replacement]})
+        sends = _route_after_replan(
+            {
+                "replan_categories": [replacement],
+                "city_slug": "porto",
+                "destination": "Porto",
+            }
+        )
         self.assertEqual([item.arg["category"] for item in sends], [replacement])
         self.assertEqual(
-            _route_after_replan({"replan_categories": []}), "scoring_node"
+            _route_after_replan({"replan_categories": []}),
+            "select_recommendations",
         )
 
 
@@ -71,17 +78,26 @@ class GraphHitlTests(IsolatedAsyncioTestCase):
         ]
         replacement = Category(name="History", rationale="History rationale")
         researched: list[str] = []
-        node_counts = {"supervisor": 0, "scoring": 0, "guardrail": 0}
+        node_counts = {"city_profile": 0, "replan": 0}
 
-        def supervisor(state):
-            node_counts["supervisor"] += 1
-            return {"categories": initial_categories}
+        async def city_profile(state):
+            node_counts["city_profile"] += 1
+            return {
+                "city_slug": "porto",
+                "categories": initial_categories,
+                "selected_categories": None,
+                "research_iteration": 0,
+                "replan_categories": [],
+            }
 
-        async def research(category):
+        async def research(category, *, city_slug, city_name):
             researched.append(category.name)
-            return {"candidates": [_graded(category.name)]}
+            self.assertEqual(city_slug, "porto")
+            self.assertEqual(city_name, "Porto")
+            return {"scored_recommendations": [_scored(category.name)]}
 
         def replan(state):
+            node_counts["replan"] += 1
             if state["research_iteration"] == 0:
                 return {
                     "categories": [initial_categories[0], replacement],
@@ -90,38 +106,27 @@ class GraphHitlTests(IsolatedAsyncioTestCase):
                 }
             return {"replan_categories": []}
 
-        async def scoring(state):
-            node_counts["scoring"] += 1
-            self.assertEqual(
-                {item.category for item in state["graded_candidates"]},
-                {"Food", "History"},
-            )
-            return {
-                "scored_recommendations": [
-                    _scored(candidate) for candidate in state["graded_candidates"]
-                ]
-            }
-
-        def guardrail(state):
-            node_counts["guardrail"] += 1
-            return {"scored_recommendations": state["scored_recommendations"]}
-
         with (
-            patch("app.graph.build.supervisor_node", side_effect=supervisor),
+            patch(
+                "app.graph.build.city_profile_node",
+                new=AsyncMock(side_effect=city_profile),
+            ),
             patch(
                 "app.graph.build.research_category",
                 new=AsyncMock(side_effect=research),
             ),
             patch("app.graph.build.supervisor_replan_check", side_effect=replan),
-            patch("app.graph.build.scoring_node", new=AsyncMock(side_effect=scoring)),
-            patch("app.graph.build.guardrail_node", side_effect=guardrail),
         ):
             graph = compile_graph(InMemorySaver(serde=_checkpoint_serializer()))
             config = {"configurable": {"thread_id": "brief-hitl-test"}}
-            paused = await graph.ainvoke(
+            category_pause = await graph.ainvoke(
                 {"destination": "Porto", "trip_length_days": 2}, config=config
             )
+            self.assertIn("__interrupt__", category_pause)
 
+            paused = await graph.ainvoke(
+                Command(resume=["Food", "Beaches"]), config=config
+            )
             self.assertIn("__interrupt__", paused)
             pause_event = _hitl_event_from_snapshot(await graph.aget_state(config))
             self.assertIsNotNone(pause_event)
@@ -139,6 +144,10 @@ class GraphHitlTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(node_counts, counts_at_pause)
         self.assertEqual(final["user_selections"], ["Food-id", "History-id"])
+        self.assertEqual(
+            [item.id for item in final["scored_recommendations"]],
+            ["Food-id", "History-id"],
+        )
         self.assertEqual(len(final["itinerary"]), 2)
 
 

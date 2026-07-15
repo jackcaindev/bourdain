@@ -17,7 +17,9 @@ export type Candidate = {
   name: string
   category: string
   description: string
-  source: 'vector_store' | 'web_search'
+  lat: number | null
+  lng: number | null
+  source: 'vector_store' | 'web_search' | 'cache'
   source_url: string | null
   raw_signal: string
 }
@@ -65,6 +67,10 @@ export type ErrorPayload = {
   detail: string
 }
 
+export type CategoryListPayload = {
+  categories: Category[]
+}
+
 export type HitlPayload = {
   recommendations: ScoredRecommendation[]
 }
@@ -73,13 +79,20 @@ export type ItineraryPayload = {
   days: ItineraryDay[]
 }
 
+export type CacheHitPayload = {
+  category: string
+  recommendations_count: number
+}
+
 export type SSEPayload =
   | CandidatePayload
   | ScorePayload
   | FallbackPayload
   | ErrorPayload
+  | CategoryListPayload
   | HitlPayload
   | ItineraryPayload
+  | CacheHitPayload
 
 export type SSEEvent = {
   event_type: SSEEventType
@@ -96,18 +109,40 @@ export type BriefRequest = {
 
 export type ResumeRequest = {
   user_selections: string[]
+  resume_type: 'categories' | 'venues'
 }
 
 export type SessionResponse = {
   session_id: string
 }
 
+export type BriefStatePayload = {
+  session_id: string
+  phase: 'category_select' | 'venue_select' | 'itinerary' | 'in_progress'
+  categories: Category[] | null
+  selected_categories: string[] | null
+  recommendations: ScoredRecommendation[] | null
+  itinerary_days: ItineraryDay[] | null
+}
+
 export function isHitlPayload(payload: SSEPayload | null): payload is HitlPayload {
   return payload !== null && 'recommendations' in payload
+}
+
+export function isCategoryListPayload(
+  payload: SSEPayload | null,
+): payload is CategoryListPayload {
+  return payload !== null && 'categories' in payload
 }
 
 export function isItineraryPayload(
   payload: SSEPayload | null,
 ): payload is ItineraryPayload {
   return payload !== null && 'days' in payload
+}
+
+export function isCacheHitPayload(
+  payload: SSEPayload | null,
+): payload is CacheHitPayload {
+  return payload !== null && 'recommendations_count' in payload
 }

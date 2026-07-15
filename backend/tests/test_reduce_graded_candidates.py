@@ -1,79 +1,82 @@
 from unittest import TestCase
 
-from app.graph.reduce_graded_candidates import reduce_graded_candidates
-from app.models.schemas import Candidate, Category, GradedCandidate
+from app.graph.reduce_graded_candidates import reduce_scored_recommendations
+from app.models.schemas import Category, ScoredRecommendation
 
 
-def _candidate(
-    candidate_id: str, category: str, *, graded: bool = True
-) -> Candidate:
-    values = {
-        "id": candidate_id,
-        "name": candidate_id,
-        "category": category,
-        "description": "Description",
-        "source": "vector_store",
-        "raw_signal": "Specific local evidence",
-    }
-    if not graded:
-        return Candidate(**values)
-    return GradedCandidate(
-        **values,
+def _recommendation(candidate_id: str, category: str) -> ScoredRecommendation:
+    return ScoredRecommendation(
+        id=candidate_id,
+        name=candidate_id,
+        category=category,
+        description="Description",
+        source="vector_store",
+        raw_signal="Specific local evidence",
         relevance_score=0.8,
         authenticity_signal="Locally grounded",
         confidence="high",
         needs_fallback=False,
+        bourdain_score=4,
+        scoring_rationale="Strong local fit",
+        locally_owned_signal=None,
+        passed_guardrail=True,
+        guardrail_note=None,
     )
 
 
-class ReduceGradedCandidatesTests(TestCase):
+class ReduceScoredRecommendationsTests(TestCase):
     def test_filters_stale_categories_and_preserves_order(self):
-        first = _candidate("first", "Food")
-        stale = _candidate("stale", "Nightlife")
-        second = _candidate("second", "Markets")
+        first = _recommendation("first", "Food")
+        stale = _recommendation("stale", "Nightlife")
+        second = _recommendation("second", "Markets")
 
-        result = reduce_graded_candidates(
+        result = reduce_scored_recommendations(
             {
                 "categories": [
                     Category(name="Food", rationale="Food rationale"),
                     Category(name="Markets", rationale="Market rationale"),
                 ],
-                "candidates": [first, stale, second],
+                "scored_recommendations": [first, stale, second],
             }
         )
 
         self.assertEqual(
-            [item.id for item in result["graded_candidates"]],
+            [item.id for item in result["scored_recommendations"].value],
             ["first", "second"],
         )
 
     def test_returns_empty_list_when_nothing_matches(self):
-        result = reduce_graded_candidates(
+        result = reduce_scored_recommendations(
             {
                 "categories": [Category(name="Food", rationale="Food rationale")],
-                "candidates": [_candidate("stale", "Nightlife")],
+                "scored_recommendations": [
+                    _recommendation("stale", "Nightlife")
+                ],
             }
         )
 
-        self.assertEqual(result, {"graded_candidates": []})
+        self.assertEqual(result["scored_recommendations"].value, [])
 
     def test_deduplicates_by_id_and_keeps_first_category_label(self):
-        first = _candidate("shared", "Food")
-        duplicate = _candidate("shared", "Markets")
-        distinct = _candidate("distinct", "Markets")
+        first = _recommendation("shared", "Food")
+        duplicate = _recommendation("shared", "Markets")
+        distinct = _recommendation("distinct", "Markets")
 
-        result = reduce_graded_candidates(
+        result = reduce_scored_recommendations(
             {
                 "categories": [
                     Category(name="Food", rationale="Food rationale"),
                     Category(name="Markets", rationale="Market rationale"),
                 ],
-                "candidates": [first, duplicate, distinct],
+                "scored_recommendations": [first, duplicate, distinct],
             }
         )
 
         self.assertEqual(
-            [(item.id, item.category) for item in result["graded_candidates"]],
+            [
+                (item.id, item.category)
+                for item in result["scored_recommendations"].value
+            ],
             [("shared", "Food"), ("distinct", "Markets")],
         )
 
@@ -81,54 +84,19 @@ class ReduceGradedCandidatesTests(TestCase):
         with self.assertLogs(
             "app.graph.reduce_graded_candidates", level="INFO"
         ) as logs:
-            reduce_graded_candidates(
+            reduce_scored_recommendations(
                 {
                     "categories": [
                         Category(name="Food", rationale="Food rationale")
                     ],
-                    "candidates": [
-                        _candidate("shared", "Food"),
-                        _candidate("shared", "Food"),
+                    "scored_recommendations": [
+                        _recommendation("shared", "Food"),
+                        _recommendation("shared", "Food"),
                     ],
                 }
             )
 
         record = logs.records[0]
-        self.assertEqual(record.candidate_count_before_dedup, 2)
+        self.assertEqual(record.recommendation_count_before_dedup, 2)
         self.assertEqual(record.duplicate_count, 1)
-        self.assertEqual(record.candidate_count_after_dedup, 1)
-
-    def test_rejects_retained_bare_candidate(self):
-        with self.assertRaisesRegex(TypeError, "GradedCandidate.*bare"):
-            reduce_graded_candidates(
-                {
-                    "categories": [
-                        Category(name="Food", rationale="Food rationale")
-                    ],
-                    "candidates": [_candidate("bare", "Food", graded=False)],
-                }
-            )
-
-    def test_validates_duplicate_before_deduplicating(self):
-        with self.assertRaisesRegex(TypeError, "GradedCandidate.*shared"):
-            reduce_graded_candidates(
-                {
-                    "categories": [
-                        Category(name="Food", rationale="Food rationale")
-                    ],
-                    "candidates": [
-                        _candidate("shared", "Food"),
-                        _candidate("shared", "Food", graded=False),
-                    ],
-                }
-            )
-
-    def test_does_not_validate_filtered_stale_candidate(self):
-        result = reduce_graded_candidates(
-            {
-                "categories": [Category(name="Food", rationale="Food rationale")],
-                "candidates": [_candidate("bare", "Nightlife", graded=False)],
-            }
-        )
-
-        self.assertEqual(result["graded_candidates"], [])
+        self.assertEqual(record.recommendation_count_after_dedup, 1)

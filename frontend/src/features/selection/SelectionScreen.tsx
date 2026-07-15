@@ -8,11 +8,31 @@ export function SelectionScreen() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const recommendations = useBriefStore((state) => state.recommendations)
+  const selectedCategories = useBriefStore((state) => state.selectedCategories)
   const [selectedIds, setSelectedIds] = useState(
     () => new Set(recommendations.map((recommendation) => recommendation.id)),
   )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const recommendationsByCategory = new Map<string, typeof recommendations>()
+  for (const recommendation of recommendations) {
+    const categoryRecommendations = recommendationsByCategory.get(
+      recommendation.category,
+    )
+    if (categoryRecommendations) categoryRecommendations.push(recommendation)
+    else recommendationsByCategory.set(recommendation.category, [recommendation])
+  }
+
+  const selectedCategoryNames = new Set(selectedCategories)
+  const orderedCategoryNames = [
+    ...new Set(
+      selectedCategories.filter((category) => recommendationsByCategory.has(category)),
+    ),
+    ...Array.from(recommendationsByCategory.keys()).filter(
+      (category) => !selectedCategoryNames.has(category),
+    ),
+  ]
 
   if (!sessionId || recommendations.length === 0) {
     return (
@@ -36,15 +56,12 @@ export function SelectionScreen() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!sessionId || selectedIds.size < 1) {
-      setError('Select at least one recommendation to continue.')
-      return
-    }
+    if (!sessionId) return
 
     setSubmitting(true)
     setError(null)
     try {
-      await resumeBrief(sessionId, Array.from(selectedIds))
+      await resumeBrief(sessionId, Array.from(selectedIds), 'venues')
       navigate(`/brief/${encodeURIComponent(sessionId)}/progress`)
     } catch (requestError) {
       setError(
@@ -65,38 +82,40 @@ export function SelectionScreen() {
           <h1>Choose what makes the cut</h1>
         </div>
         <p>
-          Every place below passed the desk. Keep at least one; leave behind
+          Every place below passed the desk. Keep what belongs; leave behind
           anything that does not belong in your trip.
         </p>
       </header>
 
       <form onSubmit={handleSubmit}>
-        <div className="candidate-grid">
-          {recommendations.map((recommendation) => (
-            <CandidateCard
-              key={recommendation.id}
-              recommendation={recommendation}
-              selected={selectedIds.has(recommendation.id)}
-              onSelectedChange={(selected) => setSelected(recommendation.id, selected)}
-            />
-          ))}
-        </div>
+        {orderedCategoryNames.map((category) => (
+          <section className="recommendation-section" key={category}>
+            <h2 className="recommendation-section__heading">{category}</h2>
+            <div className="candidate-grid">
+              {recommendationsByCategory.get(category)?.map((recommendation) => (
+                <CandidateCard
+                  key={recommendation.id}
+                  recommendation={recommendation}
+                  selected={selectedIds.has(recommendation.id)}
+                  onSelectedChange={(selected) =>
+                    setSelected(recommendation.id, selected)
+                  }
+                />
+              ))}
+            </div>
+          </section>
+        ))}
 
         <footer className="selection-actions">
           <p>{selectedIds.size} OF {recommendations.length} SELECTED</p>
           <div>
-            {selectedIds.size === 0 && (
-              <p className="form-error" role="alert">
-                Select at least one recommendation to continue.
-              </p>
-            )}
-            {error && selectedIds.size > 0 && (
+            {error && (
               <p className="form-error" role="alert">{error}</p>
             )}
             <button
               className="primary-button"
               type="submit"
-              disabled={submitting || selectedIds.size === 0}
+              disabled={submitting}
             >
               {submitting ? 'ASSEMBLING…' : 'BUILD THE ITINERARY'}
             </button>

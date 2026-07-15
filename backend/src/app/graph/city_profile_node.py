@@ -123,7 +123,7 @@ def _derive_categories(
 
 async def city_profile_node(
     state: BriefState,
-) -> dict[str, str | list[Category]]:
+) -> dict[str, str | int | list[Category] | None]:
     """Return stored city categories, deriving and persisting them on a miss."""
 
     destination = state["destination"]
@@ -158,7 +158,13 @@ async def city_profile_node(
                 "profile_source": "database",
             },
         )
-        return {"city_slug": city_slug, "categories": categories}
+        return {
+            "city_slug": city_slug,
+            "categories": categories,
+            "research_iteration": 0,
+            "replan_categories": [],
+            "selected_categories": None,
+        }
 
     try:
         categories = await asyncio.to_thread(
@@ -195,4 +201,10 @@ async def city_profile_node(
             "profile_source": "llm",
         },
     )
-    return {"city_slug": city_slug, "categories": categories}
+    return {
+        "city_slug": city_slug,
+        "categories": categories,
+        "research_iteration": 0,
+        "replan_categories": [],
+        "selected_categories": None,
+    }

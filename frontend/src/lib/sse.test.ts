@@ -30,7 +30,7 @@ describe('BriefEventStream', () => {
     vi.unstubAllGlobals()
   })
 
-  it('delivers a HITL event before closing once', () => {
+  it('delivers a HITL event and stays open until explicitly closed', () => {
     vi.stubGlobal('EventSource', MockEventSource)
     const calls: string[] = []
     const stream = new BriefEventStream('session one', {
@@ -44,11 +44,15 @@ describe('BriefEventStream', () => {
       'hitl_pause',
       JSON.stringify({
         event_type: 'hitl_pause',
-        node_name: 'select_recommendations',
+        node_name: 'venue_select',
         message: 'Choose.',
         payload: { recommendations: [] },
       }),
     )
+
+    expect(calls).toEqual(['event'])
+    expect(source.close).not.toHaveBeenCalled()
+
     stream.close()
 
     expect(source.url).toContain('session%20one/stream')

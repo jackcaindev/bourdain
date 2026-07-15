@@ -182,7 +182,12 @@ async def research_category(
                 "candidate_count": len(cached_recommendations),
             },
         )
-        return {"scored_recommendations": cached_recommendations}
+        return {
+            "scored_recommendations": [
+                recommendation.model_copy(update={"source": "cache"})
+                for recommendation in cached_recommendations
+            ]
+        }
 
     logger.info(
         "research_category_start",

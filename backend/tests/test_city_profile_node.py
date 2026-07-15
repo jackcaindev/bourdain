@@ -58,7 +58,13 @@ class CityProfileNodeTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(
             result,
-            {"city_slug": "austin-tx", "categories": stored_categories},
+            {
+                "city_slug": "austin-tx",
+                "categories": stored_categories,
+                "research_iteration": 0,
+                "replan_categories": [],
+                "selected_categories": None,
+            },
         )
         get_profile.assert_awaited_once_with("austin-tx")
         llm_call.assert_not_called()
@@ -92,6 +98,9 @@ class CityProfileNodeTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(result["city_slug"], "oaxaca-mexico")
         self.assertEqual(result["categories"], derived_categories)
+        self.assertEqual(result["research_iteration"], 0)
+        self.assertEqual(result["replan_categories"], [])
+        self.assertIsNone(result["selected_categories"])
         llm_call.assert_called_once()
         call_kwargs = llm_call.call_args.kwargs
         self.assertIn("Derive 6 distinct research categories", call_kwargs["user_prompt"])

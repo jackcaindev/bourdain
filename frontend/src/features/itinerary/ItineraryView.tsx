@@ -1,6 +1,8 @@
 import { Link } from 'react-router'
+import type { ScoredRecommendation } from '../../lib/types'
 import { useBriefStore } from '../../store'
 import { ItineraryDay } from './ItineraryDay'
+import { ItineraryMap } from './ItineraryMap'
 
 export function ItineraryView() {
   const days = useBriefStore((state) => state.itineraryDays)
@@ -15,6 +17,12 @@ export function ItineraryView() {
     )
   }
 
+  const recommendations = days.flatMap((day) =>
+    [day.breakfast, day.lunch, day.dinner, ...day.activities].filter(
+      (recommendation): recommendation is ScoredRecommendation => recommendation !== null,
+    ),
+  )
+
   return (
     <main className="content-page itinerary-page">
       <header className="itinerary-title">
@@ -26,6 +34,7 @@ export function ItineraryView() {
         ), 0)} PLACES</p>
       </header>
       {days.map((day) => <ItineraryDay key={day.day_number} day={day} />)}
+      <ItineraryMap recommendations={recommendations} />
     </main>
   )
 }

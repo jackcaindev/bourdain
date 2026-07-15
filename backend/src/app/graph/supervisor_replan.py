@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, TypeAdapter
 
 from app.graph.state import BriefState
-from app.models.schemas import Category, GradedCandidate
+from app.models.schemas import Category, ScoredRecommendation
 from app.services.llm import call_forced_tool
 
 
@@ -67,19 +67,19 @@ def _replan_tool_schema() -> dict[str, Any]:
 
 
 def _grouped_candidate_payload(state: BriefState) -> list[dict[str, Any]]:
-    grouped: dict[str, list[GradedCandidate]] = {
+    grouped: dict[str, list[ScoredRecommendation]] = {
         category.name: [] for category in state["categories"]
     }
-    for candidate in state["graded_candidates"]:
-        if candidate.category in grouped:
-            grouped[candidate.category].append(candidate)
+    for recommendation in state["scored_recommendations"]:
+        if recommendation.category in grouped:
+            grouped[recommendation.category].append(recommendation)
 
     return [
         {
             "category": category.model_dump(mode="json"),
-            "graded_candidates": [
-                candidate.model_dump(mode="json")
-                for candidate in grouped[category.name]
+            "scored_recommendations": [
+                recommendation.model_dump(mode="json")
+                for recommendation in grouped[category.name]
             ],
         }
         for category in state["categories"]
@@ -127,7 +127,7 @@ def _request_replacements(state: BriefState) -> list[_CategoryReplacement]:
         user_prompt=(
             f"Destination: {state['destination']}\n"
             f"Trip length: {state['trip_length_days']} day(s)\n\n"
-            "Review these categories and their final graded candidates. For every "
+            "Review these categories and their final scored recommendations. For every "
             "category you replace, echo its exact name and provide one destination-"
             "specific replacement category:\n"
             f"{json.dumps(_grouped_candidate_payload(state), ensure_ascii=False)}"

@@ -1,9 +1,24 @@
 import { MemoryRouter } from 'react-router'
-import { render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import type { ReactNode } from 'react'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBriefStore } from '../../store'
-import { itineraryDay } from '../../test/fixtures'
+import { itineraryDay, recommendation } from '../../test/fixtures'
 import { ItineraryView } from './ItineraryView'
+
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: ReactNode }) => (
+    <div data-testid="map-container">{children}</div>
+  ),
+  Marker: ({ children }: { children: ReactNode }) => (
+    <div data-testid="map-marker">{children}</div>
+  ),
+  Popup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  TileLayer: () => null,
+  useMap: () => ({ fitBounds: vi.fn() }),
+}))
+
+afterEach(cleanup)
 
 describe('ItineraryView', () => {
   beforeEach(() => {
@@ -25,5 +40,39 @@ describe('ItineraryView', () => {
       'href',
       'https://example.com/cafe',
     )
+  })
+
+  it('renders a marker for a recommendation with coordinates', () => {
+    useBriefStore.getState().setItineraryDays([{
+      ...itineraryDay,
+      breakfast: recommendation,
+      activities: [],
+    }])
+
+    render(
+      <MemoryRouter>
+        <ItineraryView />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByTestId('map-container')).toBeInTheDocument()
+    expect(screen.getByTestId('map-marker')).toHaveTextContent('Cafe Local')
+    expect(screen.getByTestId('map-marker')).toHaveTextContent('Food')
+  })
+
+  it('renders no map when no recommendation has coordinates', () => {
+    useBriefStore.getState().setItineraryDays([{
+      ...itineraryDay,
+      breakfast: { ...recommendation, lat: null, lng: null },
+      activities: [],
+    }])
+
+    render(
+      <MemoryRouter>
+        <ItineraryView />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByTestId('map-container')).not.toBeInTheDocument()
   })
 })
