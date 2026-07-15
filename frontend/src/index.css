@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garant:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Archivo:wght@400;500;600&display=swap');
+
+@theme {
+  /* Typography */
+  --font-display: 'Cormorant Garant', Georgia, serif;
+  --font-body: 'Archivo', system-ui, sans-serif;
+
+  /* Palette */
+  --color-paper: #f5f0e8; /* off-white base */
+  --color-ink: #1a1814; /* near-black text */
+  --color-ink-muted: #6b6560; /* secondary text */
+  --color-ochre: #c4883a; /* primary accent */
+  --color-ochre-light: #e8c98a; /* hover/subtle accent */
+  --color-rule: #d4cfc7; /* dividers, borders */
+  --color-surface: #ede8df; /* card/panel backgrounds */
+
+  /* Type scale */
+  --text-masthead: 4rem; /* app title / destination hero */
+  --text-display: 2.5rem; /* section headers */
+  --text-headline: 1.5rem; /* card titles */
+  --text-body: 1rem;
+  --text-caption: 0.8125rem; /* labels, metadata */
+
+  /* Spacing */
+  --spacing-page: 2.5rem; /* horizontal page padding */
+}

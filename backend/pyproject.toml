@@ -17,6 +17,9 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "psycopg[binary,pool]>=3.2.0",
     "tavily-python>=0.7.0",
+    "sse-starlette>=3.4.5",
+    "fastapi>=0.139.0",
+    "uvicorn>=0.51.0",
 ]
 
 [build-system]
