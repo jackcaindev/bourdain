@@ -57,9 +57,7 @@ class SSEConversionTests(TestCase):
                 "name": "research_category",
                 "data": {
                     "output": {
-                        "scored_recommendations": [
-                            recommendation.model_dump(mode="json")
-                        ]
+                        "scored_recommendations": [recommendation]
                     }
                 },
             }
@@ -73,6 +71,26 @@ class SSEConversionTests(TestCase):
             event.message,
             "Already know this one. Pulled 1 from the files.",
         )
+
+    def test_research_category_non_cache_reports_leads(self):
+        recommendation = _recommendation(source="web_search")
+        event = _to_sse_event(
+            {
+                "event": "on_chain_end",
+                "name": "research_category",
+                "data": {
+                    "output": {
+                        "scored_recommendations": [recommendation]
+                    }
+                },
+            }
+        )
+
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.event_type, "node_complete")
+        self.assertIsNone(event.payload)
+        self.assertEqual(event.message, "Got 1 lead(s) worth looking at.")
 
     def test_itinerary_completion_carries_days(self):
         recommendation = _recommendation()

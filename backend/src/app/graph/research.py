@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -24,7 +24,12 @@ from app.services.category_cache import (
 from app.services.embeddings import create_embeddings
 from app.services.geocoding import geocode_venue
 from app.services.llm import call_forced_tool
-from app.services.vector_store import get_shared_pool, query_nearest_neighbors
+from app.services.vector_store import (
+    get_shared_pool,
+    insert_candidate,
+    query_nearest_neighbors,
+)
+from app.services.web_search import WebSearchResult
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +49,14 @@ class _Grade(BaseModel):
     needs_fallback: bool
 
 
+class _ExtractedVenue(BaseModel):
+    name: str
+    description: str
+    source_url: str
+
+
 _GRADE_LIST_ADAPTER = TypeAdapter(list[_Grade])
+_EXTRACTED_VENUE_LIST_ADAPTER = TypeAdapter(list[_ExtractedVenue])
 
 
 def _grading_tool_schema(candidate_count: int) -> dict[str, Any]:
@@ -85,6 +97,61 @@ def _grading_tool_schema(candidate_count: int) -> dict[str, Any]:
             "additionalProperties": False,
         },
     }
+
+
+def _venue_extraction_tool_schema() -> dict[str, Any]:
+    return {
+        "name": "extract_venues",
+        "description": "Extracts specific named venues from web search results.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "venues": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "source_url": {"type": "string"},
+                        },
+                        "required": ["name", "description", "source_url"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["venues"],
+            "additionalProperties": False,
+        },
+    }
+
+
+def _extract_venues(
+    category: Category, web_results: list[WebSearchResult]
+) -> list[_ExtractedVenue]:
+    payload = [
+        {"title": result.title, "url": result.url, "content": result.content}
+        for result in web_results
+    ]
+    tool_input = call_forced_tool(
+        system_prompt=(
+            "Extract every specific, named venue or place mentioned across the "
+            "supplied web results. Skip generic mentions such as neighborhoods, "
+            "the food scene, or a category in general when they are not specific "
+            "places. Merge duplicate mentions of the same venue across results "
+            "into one entry. For each venue, choose the single most relevant "
+            "source_url from only the URLs present in the supplied results. Use "
+            "the tool once."
+        ),
+        user_prompt=(
+            f"Category: {category.name}\nRationale: {category.rationale}\n\n"
+            f"Web results:\n{json.dumps(payload, ensure_ascii=False)}"
+        ),
+        tool_schema=_venue_extraction_tool_schema(),
+        model=RESEARCH_MODEL,
+        max_tokens=4000,
+    )
+    return _EXTRACTED_VENUE_LIST_ADAPTER.validate_python(tool_input["venues"])
 
 
 def _grade_candidates(
@@ -204,7 +271,10 @@ async def research_category(
     try:
         pool = await get_shared_pool()
         results = await query_nearest_neighbors(
-            pool, query_embedding=query_embedding, top_k=5
+            pool,
+            query_embedding=query_embedding,
+            city_slug=city_slug,
+            top_k=5,
         )
     except Exception as exc:
         raise ResearchCategoryError(
@@ -245,7 +315,9 @@ async def research_category(
         },
     )
 
-    fallback_triggered = any(item.needs_fallback for item in graded)
+    fallback_triggered = not candidates or any(
+        item.needs_fallback for item in graded
+    )
     logger.info(
         "research_fallback_decision",
         extra={
@@ -256,22 +328,25 @@ async def research_category(
     )
     if fallback_triggered:
         try:
-            web_results = await run_web_fallback_agent(category)
+            web_results = await run_web_fallback_agent(category, city_name)
         except Exception as exc:
             raise ResearchCategoryError(
                 f"Web fallback failed for category '{category.name}'."
             ) from exc
+        extracted_venues = await asyncio.to_thread(
+            _extract_venues, category, web_results
+        )
         candidates.extend(
             Candidate(
                 id=str(uuid4()),
-                name=result.title,
+                name=venue.name,
                 category=category.name,
-                description=result.content,
+                description=venue.description,
                 source="web_search",
-                source_url=result.url,
-                raw_signal=result.content,
+                source_url=venue.source_url,
+                raw_signal=venue.description,
             )
-            for result in web_results
+            for venue in extracted_venues
         )
         graded = await asyncio.to_thread(_grade_candidates, category, candidates)
         logger.info(
@@ -314,6 +389,44 @@ async def research_category(
         if isinstance(coordinates, BaseException) or coordinates is None:
             continue
         recommendation.lat, recommendation.lng = coordinates
+
+    web_recommendations = [
+        recommendation
+        for recommendation in scored_recommendations
+        if recommendation.source == "web_search" and recommendation.passed_guardrail
+    ]
+    try:
+        if web_recommendations:
+            embeddings = await asyncio.to_thread(
+                create_embeddings,
+                [recommendation.description for recommendation in web_recommendations],
+            )
+            await asyncio.gather(
+                *(
+                    insert_candidate(
+                        pool,
+                        name=recommendation.name,
+                        content=recommendation.description,
+                        category=category.name,
+                        city_slug=city_slug,
+                        embedding=embedding,
+                        metadata={"source_url": recommendation.source_url},
+                        candidate_id=UUID(recommendation.id),
+                    )
+                    for recommendation, embedding in zip(
+                        web_recommendations, embeddings, strict=True
+                    )
+                )
+            )
+    except Exception:
+        logger.exception(
+            "research_vector_store_write_failed",
+            extra={
+                "city_slug": city_slug,
+                "category": category.name,
+                "candidate_count": len(web_recommendations),
+            },
+        )
 
     try:
         await write_category_cache(

@@ -1,4 +1,5 @@
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -9,7 +10,9 @@ from app.graph.web_fallback_agent import (
     MAX_SEARCH_TOOL_CALLS,
     _collect_results,
     _create_fallback_agent,
+    run_web_fallback_agent,
 )
+from app.models.schemas import Category
 from app.services.web_search import WebSearchResult
 
 
@@ -40,6 +43,31 @@ class _AlwaysSearchModel(BaseChatModel):
 
 
 class WebFallbackAgentCapTests(IsolatedAsyncioTestCase):
+    @patch("app.graph.web_fallback_agent._create_fallback_agent")
+    async def test_leads_agent_query_with_city_name(self, create_agent):
+        agent = MagicMock()
+        agent.ainvoke = AsyncMock(return_value={"messages": []})
+        create_agent.return_value = agent
+        category = Category(
+            name="Late-night food",
+            rationale="Find worker-focused spots",
+        )
+
+        await run_web_fallback_agent(category, "Test City")
+
+        agent.ainvoke.assert_awaited_once_with(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Test City — Late-night food: Find worker-focused spots"
+                        ),
+                    }
+                ]
+            }
+        )
+
     async def test_executes_exactly_three_searches_and_blocks_fourth(self):
         executed_queries = []
 

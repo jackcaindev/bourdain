@@ -85,14 +85,16 @@ def _collect_results(messages: list[Any]) -> tuple[list[WebSearchResult], bool]:
     return deduplicated, hit_cap
 
 
-async def run_web_fallback_agent(category: Category) -> list[WebSearchResult]:
+async def run_web_fallback_agent(
+    category: Category, city_name: str
+) -> list[WebSearchResult]:
     """Run agent-directed searches and return every unique gathered result."""
 
     logger.info(
         "web_fallback_agent_start",
         extra={"category": category.name},
     )
-    query = f"{category.name}: {category.rationale}"
+    query = f"{city_name} — {category.name}: {category.rationale}"
 
     try:
         output = await _create_fallback_agent().ainvoke(

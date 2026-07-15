@@ -102,6 +102,7 @@ async def insert_candidate(
     name: str,
     content: str,
     category: str,
+    city_slug: str,
     embedding: list[float],
     metadata: dict[str, Any] | None = None,
     candidate_id: UUID | None = None,
@@ -116,14 +117,17 @@ async def insert_candidate(
         async with pool.acquire() as connection:
             return await connection.fetchval(
                 f"""
-                INSERT INTO {TABLE_NAME} (id, name, content, category, metadata, embedding)
-                VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                INSERT INTO {TABLE_NAME} (
+                    id, name, content, category, city_slug, metadata, embedding
+                )
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
                 RETURNING id
                 """,
                 row_id,
                 name,
                 content,
                 category,
+                city_slug,
                 metadata_json,
                 embedding,
             )
@@ -135,6 +139,7 @@ async def query_nearest_neighbors(
     pool: asyncpg.Pool,
     *,
     query_embedding: list[float],
+    city_slug: str,
     top_k: int = 5,
 ) -> list[VectorSearchResult]:
     """Return the top-k nearest snippets ordered by pgvector L2 distance."""
@@ -155,10 +160,12 @@ async def query_nearest_neighbors(
                     metadata::text AS metadata,
                     embedding <-> $1 AS distance
                 FROM {TABLE_NAME}
+                WHERE city_slug = $2
                 ORDER BY embedding <-> $1
-                LIMIT $2
+                LIMIT $3
                 """,
                 query_embedding,
+                city_slug,
                 top_k,
             )
     except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError) as exc:

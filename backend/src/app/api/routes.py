@@ -163,14 +163,14 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
         if name == "research_category":
             output = data.get("output", {})
             recs = output.get("scored_recommendations", [])
-            source = recs[0].get("source") if recs else None
+            source = recs[0].source if recs else None
             if source == "cache":
                 return SSEEvent(
                     event_type="node_complete",
                     node_name=name,
                     message=f"Already know this one. Pulled {len(recs)} from the files.",
                     payload=CacheHitPayload(
-                        category=recs[0].get("category", "unknown"),
+                        category=recs[0].category,
                         recommendations_count=len(recs),
                     ),
                 )
