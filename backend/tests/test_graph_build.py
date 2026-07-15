@@ -12,6 +12,7 @@ from app.graph.build import (
     compile_graph,
 )
 from app.models.schemas import Category, GradedCandidate, ScoredRecommendation
+from app.api.routes import _hitl_event_from_snapshot
 
 
 def _graded(category: str) -> GradedCandidate:
@@ -122,6 +123,13 @@ class GraphHitlTests(IsolatedAsyncioTestCase):
             )
 
             self.assertIn("__interrupt__", paused)
+            pause_event = _hitl_event_from_snapshot(await graph.aget_state(config))
+            self.assertIsNotNone(pause_event)
+            assert pause_event is not None
+            self.assertEqual(pause_event.event_type, "hitl_pause")
+            self.assertEqual(
+                len(pause_event.payload.recommendations), 2  # type: ignore[union-attr]
+            )
             self.assertCountEqual(researched, ["Food", "Beaches", "History"])
             counts_at_pause = node_counts.copy()
 

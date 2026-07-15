@@ -3,6 +3,7 @@ import asyncio
 import time
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.logging_config import configure_logging
 from app.services.vector_store import get_shared_pool
@@ -38,4 +39,10 @@ async def lifespan(app: FastAPI):
     # build_graph()'s finally handles close_shared_pool() — don't call it here
 
 app = FastAPI(title="Bourdain Brief", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(router, prefix="/api")

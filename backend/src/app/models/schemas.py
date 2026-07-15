@@ -239,6 +239,28 @@ class ErrorPayload(BaseModel):
     )
 
 
+class HitlPayload(BaseModel):
+    """Recommendations presented when the graph pauses for user selection."""
+
+    recommendations: list[ScoredRecommendation] = Field(
+        description=(
+            "Carries the complete reviewed recommendation set so the client can "
+            "render the human-in-the-loop selection screen."
+        )
+    )
+
+
+class ItineraryPayload(BaseModel):
+    """Completed itinerary delivered when assembly finishes."""
+
+    days: list[ItineraryDay] = Field(
+        description=(
+            "Carries the assembled days so the client can render the final "
+            "itinerary without making a separate request."
+        )
+    )
+
+
 class SSEEvent(BaseModel):
     """A typed server-sent event envelope for UI progress streaming."""
 
@@ -266,7 +288,15 @@ class SSEEvent(BaseModel):
             "directly in the UI feed."
         )
     )
-    payload: CandidatePayload | ScorePayload | FallbackPayload | ErrorPayload | None = Field(
+    payload: (
+        CandidatePayload
+        | ScorePayload
+        | FallbackPayload
+        | ErrorPayload
+        | HitlPayload
+        | ItineraryPayload
+        | None
+    ) = Field(
         default=None,
         description=(
             "Carries one of the typed event payloads when structured progress "

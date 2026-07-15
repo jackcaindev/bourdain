@@ -2,12 +2,20 @@ from dataclasses import dataclass, field
 import asyncio
 import time
 import logging
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel
 
-from app.models.schemas import SSEEvent, ErrorPayload, CandidatePayload, ScorePayload
+from app.models.schemas import (
+    CandidatePayload,
+    ErrorPayload,
+    HitlPayload,
+    ItineraryPayload,
+    SSEEvent,
+    ScorePayload,
+)
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 
@@ -86,11 +94,7 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
 
     if event == "on_chain_end" and name in _SURFACED_NODES:
         if name == "select_recommendations":
-            return SSEEvent(
-                event_type="hitl_pause",
-                node_name=name,
-                message="Recommendations ready — select what to include in your itinerary.",
-            )
+            return None
 
         if name == "scoring_node":
             output = data.get("output", {})
@@ -106,7 +110,11 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
         if name == "research_category":
             output = data.get("output", {})
             candidates = output.get("candidates", [])
-            category = candidates[0].get("category", "unknown") if candidates else "unknown"
+            first_candidate = candidates[0] if candidates else None
+            if isinstance(first_candidate, dict):
+                category = first_candidate.get("category", "unknown")
+            else:
+                category = getattr(first_candidate, "category", "unknown")
             return SSEEvent(
                 event_type="node_complete",
                 node_name=name,
@@ -117,6 +125,15 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
                 ),
             )
 
+        if name == "assemble_itinerary":
+            output = data.get("output", {})
+            return SSEEvent(
+                event_type="node_complete",
+                node_name=name,
+                message=_COMPLETE_MESSAGES[name],
+                payload=ItineraryPayload(days=output.get("itinerary", [])),
+            )
+
         return SSEEvent(
             event_type="node_complete",
             node_name=name,
@@ -124,6 +141,30 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
         )
 
     return None
+
+
+def _hitl_event_from_snapshot(snapshot: Any) -> SSEEvent | None:
+    """Build a pause event only for the persisted selection interrupt."""
+
+    if "select_recommendations" not in snapshot.next:
+        return None
+
+    interrupted = any(
+        task.name == "select_recommendations" and task.interrupts
+        for task in snapshot.tasks
+    )
+    if not interrupted:
+        return None
+
+    return SSEEvent(
+        event_type="hitl_pause",
+        node_name="select_recommendations",
+        message="Recommendations ready — select what to include in your itinerary.",
+        payload=HitlPayload(
+            recommendations=snapshot.values.get("scored_recommendations", [])
+        ),
+    )
+
 
 async def _run_graph(session_id: str, destination: str, trip_length_days: int):
     entry = _sessions.get(session_id)
@@ -138,6 +179,11 @@ async def _run_graph(session_id: str, destination: str, trip_length_days: int):
             sse = _to_sse_event(raw)
             if sse:
                 await entry.queue.put(sse)
+        snapshot = await _graph.aget_state(config)
+        pause_event = _hitl_event_from_snapshot(snapshot)
+        if pause_event is None:
+            raise RuntimeError("Graph stopped without reaching the selection interrupt")
+        await entry.queue.put(pause_event)
     except Exception as e:
         logger.exception("Graph error for session %s", session_id)
         err = SSEEvent(
@@ -147,7 +193,6 @@ async def _run_graph(session_id: str, destination: str, trip_length_days: int):
             payload=ErrorPayload(node_name="graph", detail=str(e)),
         )
         await entry.queue.put(err)
-    finally:
         await entry.queue.put(None)
 
 async def _resume_graph(session_id: str, user_selections: list[str]):
@@ -214,7 +259,7 @@ async def resume_brief(session_id: str, req: ResumeRequest):
     _sessions[session_id].last_active = time.monotonic()
     asyncio.create_task(_resume_graph(session_id, req.user_selections))
     logger.info("Brief resumed session=%s selections=%s", session_id, req.user_selections)
-    return SessionResponse(session_id=req.session_id)
+    return SessionResponse(session_id=session_id)
 
 @router.get("/health")
 async def health():
