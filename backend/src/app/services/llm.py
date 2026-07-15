@@ -1,5 +1,6 @@
 """Thin Anthropic SDK wrapper for reusable forced-tool calls."""
 
+from functools import lru_cache
 from typing import Any
 
 from anthropic import Anthropic
@@ -11,6 +12,11 @@ class LLMToolUseError(RuntimeError):
     """Raised when a forced tool call does not produce usable tool input."""
 
 
+class LLMTruncatedResponseError(LLMToolUseError):
+    """Raised when a forced tool response reaches its token limit."""
+
+
+@lru_cache
 def _create_anthropic_client() -> Anthropic:
     settings = get_settings()
     return Anthropic(
@@ -35,14 +41,20 @@ def call_forced_tool(
         raise ValueError("tool_schema must include a non-empty string 'name'")
 
     anthropic_client = client or _create_anthropic_client()
-    response = anthropic_client.messages.create(
+    with anthropic_client.messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
         tools=[tool_schema],
         tool_choice={"type": "tool", "name": tool_name},
-    )
+    ) as stream:
+        response = stream.get_final_message()
+
+    if response.stop_reason == "max_tokens":
+        raise LLMTruncatedResponseError(
+            "Forced tool response was truncated; increase max_tokens for this call."
+        )
 
     for content_block in response.content:
         block_type = getattr(content_block, "type", None)

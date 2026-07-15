@@ -44,13 +44,13 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
-    @patch("app.graph.research.create_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
     @patch("app.graph.research.create_embeddings")
     async def test_grades_vector_results_once_without_fallback(
-        self, embed, create_pool, query, grade, search
+        self, embed, get_shared_pool, query, grade, search
     ):
         embed.return_value = [[0.0] * 1536]
-        create_pool.return_value = self.pool
+        get_shared_pool.return_value = self.pool
         vector_result = _result()
         query.return_value = [vector_result]
         grade.return_value = _tool_output([str(vector_result.id)])
@@ -62,18 +62,18 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         self.assertEqual(grade.call_count, 1)
         search.assert_not_called()
         self.assertEqual(result["candidates"][0].source, "vector_store")
-        self.pool.close.assert_awaited_once()
+        self.pool.close.assert_not_awaited()
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
-    @patch("app.graph.research.create_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
     @patch("app.graph.research.create_embeddings")
     async def test_one_category_fallback_and_combined_regrade(
-        self, embed, create_pool, query, grade, search
+        self, embed, get_shared_pool, query, grade, search
     ):
         embed.return_value = [[0.0] * 1536]
-        create_pool.return_value = self.pool
+        get_shared_pool.return_value = self.pool
         vector_results = [_result("Cafe"), _result("Diner")]
         query.return_value = vector_results
 
@@ -99,20 +99,20 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
 
     @patch("app.graph.research.call_forced_tool", side_effect=RuntimeError("bad tool"))
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
-    @patch("app.graph.research.create_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
     @patch("app.graph.research.create_embeddings")
     async def test_grader_failure_retries_once_and_raises(
-        self, embed, create_pool, query, grade
+        self, embed, get_shared_pool, query, grade
     ):
         embed.return_value = [[0.0] * 1536]
-        create_pool.return_value = self.pool
+        get_shared_pool.return_value = self.pool
         query.return_value = [_result()]
 
         with self.assertRaisesRegex(ResearchCategoryError, "after one retry"):
             await research_category(self.category)
 
         self.assertEqual(grade.call_count, 2)
-        self.pool.close.assert_awaited_once()
+        self.pool.close.assert_not_awaited()
 
     @patch("app.graph.research.create_embeddings", side_effect=RuntimeError("api down"))
     async def test_embedding_failure_is_visible(self, embed):

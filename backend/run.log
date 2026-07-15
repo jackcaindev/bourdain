@@ -1,0 +1,288 @@
+{"timestamp":"2026-07-15T00:48:03.124097+00:00","level":"INFO","logger":"app.graph.supervisor","message":"supervisor_node_start","destination":"Tampa, Florida","category_count":0}
+{"timestamp":"2026-07-15T00:48:03.826956+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:07.679636+00:00","level":"INFO","logger":"app.graph.supervisor","message":"supervisor_node_complete","destination":"Tampa, Florida","category_count":5}
+{"timestamp":"2026-07-15T00:48:07.683919+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_start","category":"food","candidate_count":0}
+{"timestamp":"2026-07-15T00:48:07.684041+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_start","category":"neighborhoods","candidate_count":0}
+{"timestamp":"2026-07-15T00:48:07.684988+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_start","category":"museums","candidate_count":0}
+{"timestamp":"2026-07-15T00:48:07.685526+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_start","category":"nightlife","candidate_count":0}
+{"timestamp":"2026-07-15T00:48:07.686024+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_start","category":"beaches","candidate_count":0}
+{"timestamp":"2026-07-15T00:48:08.680598+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:08.681751+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:08.682367+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:08.683375+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:08.697204+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:08.958797+00:00","level":"INFO","logger":"app.graph.research","message":"research_retrieval_complete","category":"museums","candidate_count":5}
+{"timestamp":"2026-07-15T00:48:08.958915+00:00","level":"INFO","logger":"app.graph.research","message":"research_retrieval_complete","category":"food","candidate_count":5}
+{"timestamp":"2026-07-15T00:48:08.958978+00:00","level":"INFO","logger":"app.graph.research","message":"research_retrieval_complete","category":"nightlife","candidate_count":5}
+{"timestamp":"2026-07-15T00:48:08.961358+00:00","level":"INFO","logger":"app.graph.research","message":"research_retrieval_complete","category":"beaches","candidate_count":5}
+{"timestamp":"2026-07-15T00:48:08.961409+00:00","level":"INFO","logger":"app.graph.research","message":"research_retrieval_complete","category":"neighborhoods","candidate_count":5}
+{"timestamp":"2026-07-15T00:48:09.961152+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:09.962538+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:09.963099+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:09.989694+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:10.033870+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:17.798029+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"museums","candidate_count":5,"fallback_count":5}
+{"timestamp":"2026-07-15T00:48:17.798945+00:00","level":"INFO","logger":"app.graph.research","message":"research_fallback_decision","category":"museums","candidate_count":5,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:48:17.799032+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_start","category":"museums"}
+{"timestamp":"2026-07-15T00:48:19.345385+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"beaches","candidate_count":5,"fallback_count":5}
+{"timestamp":"2026-07-15T00:48:19.345449+00:00","level":"INFO","logger":"app.graph.research","message":"research_fallback_decision","category":"beaches","candidate_count":5,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:48:19.345469+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_start","category":"beaches"}
+{"timestamp":"2026-07-15T00:48:20.709493+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"food","candidate_count":5,"fallback_count":5}
+{"timestamp":"2026-07-15T00:48:20.709940+00:00","level":"INFO","logger":"app.graph.research","message":"research_fallback_decision","category":"food","candidate_count":5,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:48:20.710024+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_start","category":"food"}
+{"timestamp":"2026-07-15T00:48:21.288314+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:21.571066+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"nightlife","candidate_count":5,"fallback_count":5}
+{"timestamp":"2026-07-15T00:48:21.571130+00:00","level":"INFO","logger":"app.graph.research","message":"research_fallback_decision","category":"nightlife","candidate_count":5,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:48:21.571155+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_start","category":"nightlife"}
+{"timestamp":"2026-07-15T00:48:23.203684+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"neighborhoods","candidate_count":5,"fallback_count":5}
+{"timestamp":"2026-07-15T00:48:23.203814+00:00","level":"INFO","logger":"app.graph.research","message":"research_fallback_decision","category":"neighborhoods","candidate_count":5,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:48:23.203858+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_start","category":"neighborhoods"}
+{"timestamp":"2026-07-15T00:48:23.327811+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:24.887277+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:25.916283+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:27.070915+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:30.089725+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:30.119562+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa Museum of Art collection highlights what makes it distinctive 2024"}
+{"timestamp":"2026-07-15T00:48:30.119679+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Henry B. Plant Museum Tampa what to see curatorial focus"}
+{"timestamp":"2026-07-15T00:48:30.119710+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Salvador Dali Museum St. Petersburg Florida collection highlights visitor experience"}
+{"timestamp":"2026-07-15T00:48:30.119767+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_complete","category":"museums","stop_reason":"tool_call_cap","candidate_count":15}
+{"timestamp":"2026-07-15T00:48:31.909756+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:32.701822+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:32.760670+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Clearwater Beach vs St Pete Beach which is better Tampa day trip 2024"}
+{"timestamp":"2026-07-15T00:48:32.761371+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Clearwater Beach tourist experience crowds parking 2024"}
+{"timestamp":"2026-07-15T00:48:32.761513+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"St Pete Beach local experience vs Clearwater Beach 2024"}
+{"timestamp":"2026-07-15T00:48:32.761758+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_complete","category":"beaches","stop_reason":"tool_call_cap","candidate_count":11}
+{"timestamp":"2026-07-15T00:48:34.022732+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:34.075609+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:34.132151+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa Cuban sandwich best authentic Ybor City 2024"}
+{"timestamp":"2026-07-15T00:48:34.132431+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa stone crab best restaurants where to eat 2024"}
+{"timestamp":"2026-07-15T00:48:34.132790+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa food halls best 2024 locals recommend"}
+{"timestamp":"2026-07-15T00:48:34.132855+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_complete","category":"food","stop_reason":"tool_call_cap","candidate_count":15}
+{"timestamp":"2026-07-15T00:48:35.418391+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:36.361381+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:36.395595+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:36.402738+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Ybor City Tampa neighborhood local character 2024 what makes it unique beyond tourism"}
+{"timestamp":"2026-07-15T00:48:36.402855+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Hyde Park South Tampa neighborhood local restaurants bars scene 2024"}
+{"timestamp":"2026-07-15T00:48:36.402907+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa Heights Seminole Heights neighborhood local scene dining 2024"}
+{"timestamp":"2026-07-15T00:48:36.402972+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_complete","category":"neighborhoods","stop_reason":"tool_call_cap","candidate_count":15}
+{"timestamp":"2026-07-15T00:48:36.434143+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Ybor City Tampa bar scene live music venues 2024 specific clubs streets"}
+{"timestamp":"2026-07-15T00:48:36.434237+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Ybor City nightlife 7th Avenue venues salsa clubs dive bars rooftop"}
+{"timestamp":"2026-07-15T00:48:36.434279+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_tool_call","query":"Tampa nightlife beyond Ybor City neighborhoods bars 2024"}
+{"timestamp":"2026-07-15T00:48:36.434318+00:00","level":"INFO","logger":"app.graph.web_fallback_agent","message":"web_fallback_agent_complete","category":"nightlife","stop_reason":"tool_call_cap","candidate_count":10}
+{"timestamp":"2026-07-15T00:48:37.717717+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:48:37.718502+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:21.821037+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"beaches","candidate_count":16,"fallback_count":6,"post_fallback":true}
+{"timestamp":"2026-07-15T00:49:21.821724+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_complete","category":"beaches","candidate_count":16,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:49:24.867340+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"nightlife","candidate_count":15,"fallback_count":5,"post_fallback":true}
+{"timestamp":"2026-07-15T00:49:24.869625+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_complete","category":"nightlife","candidate_count":15,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:49:36.489322+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"food","candidate_count":20,"fallback_count":8,"post_fallback":true}
+{"timestamp":"2026-07-15T00:49:36.489606+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_complete","category":"food","candidate_count":20,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:49:37.094081+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"museums","candidate_count":20,"fallback_count":5,"post_fallback":true}
+{"timestamp":"2026-07-15T00:49:37.094201+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_complete","category":"museums","candidate_count":20,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:49:39.074930+00:00","level":"INFO","logger":"app.graph.research","message":"research_grading_complete","category":"neighborhoods","candidate_count":20,"fallback_count":5,"post_fallback":true}
+{"timestamp":"2026-07-15T00:49:39.075048+00:00","level":"INFO","logger":"app.graph.research","message":"research_category_complete","category":"neighborhoods","candidate_count":20,"fallback_triggered":true}
+{"timestamp":"2026-07-15T00:49:41.724502+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:42.063139+00:00","level":"INFO","logger":"app.graph.scoring","message":"scoring_node_start","candidate_count":91,"total_attempted":91,"total_scored":0,"total_dropped":0}
+{"timestamp":"2026-07-15T00:49:43.105735+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.212213+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.212898+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.213404+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.213840+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.214599+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.215087+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.215666+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.216161+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.454210+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.526695+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:43.735339+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:47.411605+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:48.083481+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:49.063555+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:49.193383+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:49.280685+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:50.092148+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:50.975626+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:51.076977+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:51.618523+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:51.730225+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:51.832177+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:53.260405+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:54.227399+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:54.511505+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:54.811021+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:54.853862+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:56.541278+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:56.735106+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:57.006118+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:57.416130+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:57.451432+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:57.924352+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:59.228269+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:49:59.991010+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:00.620659+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:01.944237+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:02.122890+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:03.660901+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:03.709770+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:03.837129+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:04.192729+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:04.709976+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:05.072836+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:05.386200+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:07.357922+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:07.646724+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:07.855824+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:09.241995+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:09.480498+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:09.956261+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:09.989441+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:10.764054+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:11.011477+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:12.615538+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:13.648332+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:14.359033+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:14.741609+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:15.725317+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:15.736506+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:16.839504+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:18.093667+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:18.448382+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:18.605535+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:19.240549+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:19.241463+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:21.640279+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:22.017761+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:22.126150+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:22.269428+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:22.533338+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:23.653286+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:23.748149+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:23.918501+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:24.108781+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:25.746947+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:26.763312+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:26.918248+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:29.044766+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:29.142269+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:29.399626+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:29.726483+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:30.120501+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:30.924457+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:31.237033+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:31.246030+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:31.531621+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:31.972756+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:31.998656+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:32.615873+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:50:43.643545+00:00","level":"INFO","logger":"app.graph.scoring","message":"scoring_node_complete","candidate_count":91,"total_scored":91,"total_attempted":91,"total_dropped":0}
+{"timestamp":"2026-07-15T00:50:43.673160+00:00","level":"INFO","logger":"app.graph.guardrails","message":"guardrail_node_start","recommendation_count":91}
+{"timestamp":"2026-07-15T00:50:43.673859+00:00","level":"INFO","logger":"app.graph.guardrails","message":"guardrail_stage_1_complete","recommendation_count":91,"deterministic_fail_count":0,"stage_2_candidate_count":91}
+{"timestamp":"2026-07-15T00:50:45.465288+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:51:28.813241+00:00","level":"WARNING","logger":"app.graph.guardrails","message":"guardrail_stage_2_retry_attempt","recommendation_count":91,"attempt":1,"error":"Forced tool response was truncated; increase max_tokens for this call.","error_type":"LLMTruncatedResponseError"}
+{"timestamp":"2026-07-15T00:51:30.693719+00:00","level":"INFO","logger":"httpx","message":"HTTP Request: POST https://api.anthropic.com/v1/messages \"HTTP/1.1 200 OK\""}
+{"timestamp":"2026-07-15T00:52:11.658859+00:00","level":"WARNING","logger":"app.graph.guardrails","message":"guardrail_stage_2_incomplete","recommendation_count":91,"error":"Stage 2 grounding check failed after one retry.","error_type":"LLMTruncatedResponseError"}
+{"timestamp":"2026-07-15T00:52:11.660604+00:00","level":"INFO","logger":"app.graph.guardrails","message":"guardrail_stage_2_complete","recommendation_count":91,"passed_count":0,"llm_fail_count":0,"check_incomplete_count":91}
+{"timestamp":"2026-07-15T00:52:11.662741+00:00","level":"INFO","logger":"app.graph.guardrails","message":"guardrail_node_complete","recommendation_count":91,"passed_count":0,"flagged_count":91,"deterministic_fail_count":0,"llm_fail_count":0,"check_incomplete_count":91}
+--- Invoking graph (should pause at HITL) ---
+Paused at HITL with 91 recommendations.
+  id=fb8dbb36-f4db-4ceb-a861-aeb3dd133f35 name="Ferg's Corner Diner" category='food' score=3 passed_guardrail=False
+  id=38d32597-a5ce-4ffe-8d65-d916ed110cc1 name='Riverside Warehouse District' category='food' score=1 passed_guardrail=False
+  id=1fe8a284-330f-4f9c-a323-34156c38263f name='Old Town Night Market' category='food' score=2 passed_guardrail=False
+  id=0f1ee8b0-a389-42e9-ac87-58662e2f2198 name='Harbor Walk' category='food' score=1 passed_guardrail=False
+  id=a4db48b4-e3a9-42c9-b496-13fc8b5683f2 name='The Blue Anchor' category='food' score=3 passed_guardrail=False
+  id=9d68044e-16b0-4861-ad22-13d6418f05ac name='Cuban Sandwiches in Tampa Florida | Lizzy Loves Food' category='food' score=2 passed_guardrail=False
+  id=b25e554c-b4bd-4bcb-8358-27f7a421a1f1 name='Best Cuban Sandwich in Ybor City - Tampa Forum - Tripadvisor' category='food' score=2 passed_guardrail=False
+  id=2291d9a4-41c7-45ac-b724-19d498f70817 name='Hunting An Authentic Cuban Sandwich In Tampa - Vittles & Nosh' category='food' score=3 passed_guardrail=False
+  id=9c81555b-79ee-444e-8ef2-04461419eb86 name='Cuban Sandwich | Born in Tampa Bay, FL' category='food' score=3 passed_guardrail=False
+  id=912a5d00-60a0-477e-a9fb-bc900f9b0194 name='Recipe - The Original Cuban Sandwich' category='food' score=5 passed_guardrail=False
+  id=5f0c1f52-ccef-4c1e-910b-27d62638d971 name='The best places to get Stone Crab in Tampa this season' category='food' score=2 passed_guardrail=False
+  id=2811b66a-c461-4855-ae99-b489f5b8fa44 name='TOP 10 BEST Stone Crab in Tampa, FL - Updated 2026' category='food' score=1 passed_guardrail=False
+  id=8e1b840f-0f57-4304-8f54-60638feb3283 name="Harpoon Harry's Crab House – Tampa, FL – Seafood, Steaks ..." category='food' score=3 passed_guardrail=False
+  id=d9d7fd07-60f2-4d99-a452-58b369c31434 name="Billy's Stone Crab" category='food' score=2 passed_guardrail=False
+  id=a5ab9500-5dec-4511-abab-96bf750c7a94 name='Ocean Prime | Tampa | International Plaza | Steak, Seafood, Fish' category='food' score=1 passed_guardrail=False
+  id=334014d2-0293-410e-bc30-be946857b916 name='The Pearl | Gastropub | Water Street | Tampa, Florida' category='food' score=1 passed_guardrail=False
+  id=e7db1ede-e6a5-4e61-9cad-5e254feb0a85 name="Tampa Magazine's Best Restaurants List - Tampa Magazines" category='food' score=2 passed_guardrail=False
+  id=54f2792f-cc90-4d65-b5eb-c528213d4c74 name='TOP 10 BEST Food in Tampa, FL - Updated 2026' category='food' score=1 passed_guardrail=False
+  id=94a0d4a6-ee60-4ae7-a15d-6274bca91840 name='Tampa Restaurants and Places to Eat' category='food' score=1 passed_guardrail=False
+  id=f20c2f2d-bdb3-42ec-a7a7-3fb99be9ae52 name='Armature Works | Historic Mixed-Use Hub in Tampa, FL' category='food' score=3 passed_guardrail=False
+  id=fb8dbb36-f4db-4ceb-a861-aeb3dd133f35 name="Ferg's Corner Diner" category='neighborhoods' score=2 passed_guardrail=False
+  id=38d32597-a5ce-4ffe-8d65-d916ed110cc1 name='Riverside Warehouse District' category='neighborhoods' score=2 passed_guardrail=False
+  id=1fe8a284-330f-4f9c-a323-34156c38263f name='Old Town Night Market' category='neighborhoods' score=3 passed_guardrail=False
+  id=0f1ee8b0-a389-42e9-ac87-58662e2f2198 name='Harbor Walk' category='neighborhoods' score=2 passed_guardrail=False
+  id=a4db48b4-e3a9-42c9-b496-13fc8b5683f2 name='The Blue Anchor' category='neighborhoods' score=2 passed_guardrail=False
+  id=625cdcfc-c287-4879-95e0-3f82239a80c8 name='Vacation Guide to Ybor City in Tampa FL' category='neighborhoods' score=2 passed_guardrail=False
+  id=854afdaf-2245-407c-b985-ce4f5417d723 name='Welcome to the Ybor City Visitor Information Center!' category='neighborhoods' score=2 passed_guardrail=False
+  id=45c3a99a-937d-4e38-acff-95476a9b44d4 name='Ybor City - All You SHOULD Know Before Going (2026 Reviews)' category='neighborhoods' score=2 passed_guardrail=False
+  id=e1b84062-5e8a-4787-919e-aac836428df5 name='Historic Ybor City, Tampa, FL' category='neighborhoods' score=4 passed_guardrail=False
+  id=f2c1bfc8-1920-4bdc-b25e-e0ef7366badd name='Would you recommend visiting Ybor City Neighborhood while in Tampa, Florida?' category='neighborhoods' score=4 passed_guardrail=False
+  id=f0039bbc-69fa-4175-b009-92bd24702855 name='9 Locally-Owned Restaurants in South Tampa' category='neighborhoods' score=2 passed_guardrail=False
+  id=d00ede2f-fc20-44fc-9ad2-4ea7b11df8d6 name='HOME' category='neighborhoods' score=1 passed_guardrail=False
+  id=f18d1d1f-1b53-4457-960a-2f7ec94ad0bb name='Best Tampa Neighborhoods for Singles: Nightlife, Restaurants & Entertainment' category='neighborhoods' score=2 passed_guardrail=False
+  id=272409f5-e7c0-4fa4-a9b9-66af6e90798b name='Top South Tampa Neighborhoods for Renters in 2026 | Innovo Living Hyde Park' category='neighborhoods' score=1 passed_guardrail=False
+  id=153f9911-7634-401e-9d22-7fb0629ffaf5 name='THE 10 BEST Restaurants Near Hyde Park Village (Updated 2026)' category='neighborhoods' score=1 passed_guardrail=False
+  id=7b25c835-241d-4424-b6fc-4288d7f4bd4b name='Best Seminole Heights Restaurant 2024 | Rooster & the Till | Food & Drink | Tampa' category='neighborhoods' score=4 passed_guardrail=False
+  id=0f7adef6-8cce-4507-96c4-c50b0518d0d7 name='Old Seminole Heights neighborhood in Tampa, FL - Homes for Sale | Homes by Marco' category='neighborhoods' score=2 passed_guardrail=False
+  id=9aa6df80-ef4e-4acb-b9b2-6f55237eb0a2 name="Chef's Neighborhood | Seminole Heights in Tampa" category='neighborhoods' score=5 passed_guardrail=False
+  id=b071fe06-d046-4dd6-a189-633db6a34e91 name="Front Porch Grille & Bart's Tavern - Restaurant Bar, Seminole Heights" category='neighborhoods' score=4 passed_guardrail=False
+  id=b9756c58-3308-4618-ad97-73989aab87fa name='ROOSTER & THE TILL' category='neighborhoods' score=4 passed_guardrail=False
+  id=fb8dbb36-f4db-4ceb-a861-aeb3dd133f35 name="Ferg's Corner Diner" category='museums' score=4 passed_guardrail=False
+  id=38d32597-a5ce-4ffe-8d65-d916ed110cc1 name='Riverside Warehouse District' category='museums' score=2 passed_guardrail=False
+  id=1fe8a284-330f-4f9c-a323-34156c38263f name='Old Town Night Market' category='museums' score=3 passed_guardrail=False
+  id=0f1ee8b0-a389-42e9-ac87-58662e2f2198 name='Harbor Walk' category='museums' score=1 passed_guardrail=False
+  id=a4db48b4-e3a9-42c9-b496-13fc8b5683f2 name='The Blue Anchor' category='museums' score=3 passed_guardrail=False
+  id=423ab746-e658-4834-89b7-b17b3dc6b32d name='News Archives | Tampa Museum of Art' category='museums' score=4 passed_guardrail=False
+  id=05a0240f-9db3-44ce-8df2-9fc3bcc3654d name='Current Exhibitions Archives' category='museums' score=4 passed_guardrail=False
+  id=a59165d7-d8b9-4042-b59e-b9584100ec84 name='About the Tampa Museum of Art' category='museums' score=3 passed_guardrail=False
+  id=576e93c0-5655-43a4-9930-14b463229e24 name='Current Exhibitions | Tampa Museum of Art' category='museums' score=3 passed_guardrail=False
+  id=ab8bccee-c95e-4007-8206-2dbcf9b5cbd0 name='Permanent Collections | Tampa Museum of Art' category='museums' score=3 passed_guardrail=False
+  id=735376ff-404f-43ca-aabe-d771aac19b9d name='Henry B. Plant Museum - Wikipedia' category='museums' score=4 passed_guardrail=False
+  id=a474a602-e0c0-4cac-924b-efa36a03e0cd name='Mainly Museums - Henry Plant Museum' category='museums' score=4 passed_guardrail=False
+  id=d8b4aff2-0886-428c-9327-759344a7fd7b name='Henry B. Plant Museum (Tampa) - Visitor Information & Reviews' category='museums' score=4 passed_guardrail=False
+  id=bfe222f4-16c7-464a-817e-29b4821e9856 name='Henry B. Plant Museum' category='museums' score=4 passed_guardrail=False
+  id=9515f48f-f085-423c-bb95-0abf76a60b2f name='Henry B. Plant Museum - All You SHOULD Know Before Going (2026 Reviews)' category='museums' score=4 passed_guardrail=False
+  id=5e068250-3a14-4a47-a231-fe6ccfb99142 name='St. Pete’s Dali Museum: A Visitor’s Guide for Art-Lovers' category='museums' score=2 passed_guardrail=False
+  id=b54ed0b3-d1d4-432c-825c-96f431dada51 name='Salvador Dalí Museum - Wikipedia' category='museums' score=3 passed_guardrail=False
+  id=658bf8ed-e00b-4010-af7b-15b9967db39b name='The Dali Museum: Masterpiece of Art, Architecture and Location' category='museums' score=3 passed_guardrail=False
+  id=235f3256-cfc2-4633-9fd9-0e1dbaa03f96 name='Current Exhibitions Archives - Salvador Dalí Museum' category='museums' score=3 passed_guardrail=False
+  id=ca7b7cdc-2eb2-40d7-a71d-8370f5fa7418 name='The Dalí Home - Salvador Dalí Museum' category='museums' score=3 passed_guardrail=False
+  id=fb8dbb36-f4db-4ceb-a861-aeb3dd133f35 name="Ferg's Corner Diner" category='nightlife' score=4 passed_guardrail=False
+  id=38d32597-a5ce-4ffe-8d65-d916ed110cc1 name='Riverside Warehouse District' category='nightlife' score=2 passed_guardrail=False
+  id=1fe8a284-330f-4f9c-a323-34156c38263f name='Old Town Night Market' category='nightlife' score=3 passed_guardrail=False
+  id=0f1ee8b0-a389-42e9-ac87-58662e2f2198 name='Harbor Walk' category='nightlife' score=2 passed_guardrail=False
+  id=a4db48b4-e3a9-42c9-b496-13fc8b5683f2 name='The Blue Anchor' category='nightlife' score=2 passed_guardrail=False
+  id=388336ff-bfb9-4892-a301-fa8d182fc805 name='Tampa Nightlife & Party Guide – 2024 - Nightlife Party Guide' category='nightlife' score=2 passed_guardrail=False
+  id=324c2c75-b674-4678-a331-dbacc882f1ad name="Exploring Tampa's Nightlife: Best Bars, Clubs, and Live Music Venues" category='nightlife' score=1 passed_guardrail=False
+  id=9f3a2d55-514c-445a-8dff-7e28283bd4d9 name='THE 10 BEST Nightlife in Historic Ybor (Tampa)' category='nightlife' score=1 passed_guardrail=False
+  id=8facf541-2c5e-4b6b-a666-1f7c132bd77d name='The Bricks Ybor' category='nightlife' score=3 passed_guardrail=False
+  id=44a8f17e-5fea-4b14-b9c9-33d9e2b3c937 name="Ybor City's Best Nightlife in Tampa" category='nightlife' score=2 passed_guardrail=False
+  id=4d49576a-5349-4557-b3bc-83268a906780 name='Ybor City Bar | Drinks, Food, Sports | Near Downtown Tampa' category='nightlife' score=3 passed_guardrail=False
+  id=c01145e3-aeac-4d07-b8c7-b1062a8e4b6b name="Club Prana | Tampa's Premier 5-Level Nightclub in Ybor City" category='nightlife' score=2 passed_guardrail=False
+  id=f23caf50-59c3-4be9-b4aa-bc6bb5566ee4 name='Vacation Guide to Ybor City in Tampa FL' category='nightlife' score=1 passed_guardrail=False
+  id=a6cb746a-308c-435f-843f-0a2854d37b41 name='Living in Ybor City, Tampa: Amenities, Real Estate & More' category='nightlife' score=2 passed_guardrail=False
+  id=8cd86a4f-58f7-44af-a348-5e905d04f433 name='Centro Ybor | Tampa entertainment district' category='nightlife' score=2 passed_guardrail=False
+  id=fb8dbb36-f4db-4ceb-a861-aeb3dd133f35 name="Ferg's Corner Diner" category='beaches' score=4 passed_guardrail=False
+  id=38d32597-a5ce-4ffe-8d65-d916ed110cc1 name='Riverside Warehouse District' category='beaches' score=3 passed_guardrail=False
+  id=1fe8a284-330f-4f9c-a323-34156c38263f name='Old Town Night Market' category='beaches' score=4 passed_guardrail=False
+  id=0f1ee8b0-a389-42e9-ac87-58662e2f2198 name='Harbor Walk' category='beaches' score=3 passed_guardrail=False
+  id=a4db48b4-e3a9-42c9-b496-13fc8b5683f2 name='The Blue Anchor' category='beaches' score=3 passed_guardrail=False
+  id=bd54855f-dbe7-4334-abe7-df77997da845 name="What's the difference between Tampa, Clearwater, and St. Pete?" category='beaches' score=1 passed_guardrail=False
+  id=b27d15e8-99d1-4177-bc95-49e418754fed name='St. Pete Beach vs. Clearwater Beach: Which Should You ...' category='beaches' score=1 passed_guardrail=False
+  id=20e718bc-287c-4166-9ca6-82dbaab0280f name='Your Florida Vacation: Clearwater Beach vs St. Pete Beach' category='beaches' score=1 passed_guardrail=False
+  id=1f721cde-139d-4b64-8fab-e46104c440b0 name='St Pete Beach vs Clearwater Beach: Which One is REALLY ...' category='beaches' score=2 passed_guardrail=False
+  id=89d7b3f8-dba4-4dca-95b6-e056e06ea569 name='St Pete Beach versus Clearwater Beach' category='beaches' score=1 passed_guardrail=False
+  id=f6e213a4-9a61-4985-af9b-f08d93cbf9c7 name='Clearwater Beach tourism and visitor information' category='beaches' score=1 passed_guardrail=False
+  id=7c863c24-f306-4fcd-b2b0-48b15ac76382 name='Things to Do & Attractions in Clearwater Beach FL' category='beaches' score=1 passed_guardrail=False
+  id=fdace491-3b59-47a4-9262-7398f3239940 name='Clearwater Beach Parking | SpotHero' category='beaches' score=1 passed_guardrail=False
+  id=6ab69338-3032-4fd4-b70d-a964068a0909 name='The Beaches of Tampa Bay | Visit St Petersburg Clearwater ...' category='beaches' score=1 passed_guardrail=False
+  id=fef7b366-dff8-4ffb-8510-2c0fe54d347e name='Beach Parking' category='beaches' score=1 passed_guardrail=False
+  id=4c8fdc6a-3b33-41ad-a76c-945b21c8502d name='Guide: Clearwater Beach vs. St. Pete Beach' category='beaches' score=1 passed_guardrail=False
+
+Unique ids: 71 / Total recommendations: 91
+DUPLICATE ids found (5): {'38d32597-a5ce-4ffe-8d65-d916ed110cc1', '0f1ee8b0-a389-42e9-ac87-58662e2f2198', '1fe8a284-330f-4f9c-a323-34156c38263f', 'fb8dbb36-f4db-4ceb-a861-aeb3dd133f35', 'a4db48b4-e3a9-42c9-b496-13fc8b5683f2'}
+
+--- Resuming with selections: ['fb8dbb36-f4db-4ceb-a861-aeb3dd133f35', '38d32597-a5ce-4ffe-8d65-d916ed110cc1'] ---
+
+Final itinerary has 3 days.
+  day 1: neighborhood_focus=None, activities=2
+  day 2: neighborhood_focus=None, activities=2
+  day 3: neighborhood_focus=None, activities=2

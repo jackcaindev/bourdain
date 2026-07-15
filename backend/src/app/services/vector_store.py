@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,9 @@ from app.config import get_settings
 
 EMBEDDING_DIMENSIONS = 1536
 TABLE_NAME = "local_guide_snippets"
+
+_shared_pool: asyncpg.Pool | None = None
+_shared_pool_lock = asyncio.Lock()
 
 
 class VectorStoreError(RuntimeError):
@@ -63,6 +67,33 @@ async def create_pool(database_url: str | None = None) -> asyncpg.Pool:
         raise VectorStoreConnectionError(
             "Failed to connect to the vector store database."
         ) from exc
+
+
+async def get_shared_pool() -> asyncpg.Pool:
+    """Return the process-wide vector-store pool, creating it on first use."""
+
+    global _shared_pool
+
+    if _shared_pool is not None:
+        return _shared_pool
+
+    async with _shared_pool_lock:
+        if _shared_pool is None:
+            _shared_pool = await create_pool()
+        return _shared_pool
+
+
+async def close_shared_pool() -> None:
+    """Close and clear the process-wide vector-store pool, if initialized."""
+
+    global _shared_pool
+
+    async with _shared_pool_lock:
+        if _shared_pool is not None:
+            try:
+                await _shared_pool.close()
+            finally:
+                _shared_pool = None
 
 
 async def insert_candidate(

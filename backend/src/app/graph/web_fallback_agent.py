@@ -5,9 +5,11 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallLimitMiddleware
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 
+from app.config import get_settings
 from app.models.schemas import Category
 from app.services.web_search import WebSearchResult, search_web_tool
 
@@ -31,8 +33,14 @@ class WebFallbackAgentError(RuntimeError):
 
 
 def _create_fallback_agent(
-    *, model: Any = WEB_FALLBACK_MODEL, search_tool: BaseTool = search_web_tool
+    *, model: Any | None = None, search_tool: BaseTool = search_web_tool
 ) -> Any:
+    if model is None:
+        model = ChatAnthropic(
+            api_key=get_settings().anthropic_api_key.get_secret_value(),
+            model=WEB_FALLBACK_MODEL,
+        )
+
     return create_agent(
         model=model,
         tools=[search_tool],

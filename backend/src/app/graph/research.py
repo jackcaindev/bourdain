@@ -1,5 +1,6 @@
 """Per-category retrieval, CRAG grading, and web fallback node."""
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -10,7 +11,7 @@ from pydantic import BaseModel, TypeAdapter
 from app.models.schemas import Candidate, Category, GradedCandidate
 from app.services.embeddings import create_embeddings
 from app.services.llm import call_forced_tool
-from app.services.vector_store import create_pool, query_nearest_neighbors
+from app.services.vector_store import get_shared_pool, query_nearest_neighbors
 from app.graph.web_fallback_agent import run_web_fallback_agent
 
 
@@ -98,7 +99,7 @@ def _grade_candidates(
                 ),
                 tool_schema=_grading_tool_schema(len(candidates)),
                 model=RESEARCH_MODEL,
-                max_tokens=2000,
+                max_tokens=4000,
             )
             grades = _GRADE_LIST_ADAPTER.validate_python(tool_input["grades"])
             candidates_by_id = {candidate.id: candidate for candidate in candidates}
@@ -160,108 +161,102 @@ async def research_category(category: Category) -> dict[str, list[GradedCandidat
         extra={"category": category.name, "candidate_count": 0},
     )
     query = f"{category.name}: {category.rationale}"
-    pool = None
+    try:
+        query_embedding = (await asyncio.to_thread(create_embeddings, [query]))[0]
+    except Exception as exc:
+        raise ResearchCategoryError(
+            f"Embedding failed for category '{category.name}'."
+        ) from exc
 
     try:
+        pool = await get_shared_pool()
+        results = await query_nearest_neighbors(
+            pool, query_embedding=query_embedding, top_k=5
+        )
+    except Exception as exc:
+        raise ResearchCategoryError(
+            f"Vector retrieval failed for category '{category.name}'."
+        ) from exc
+
+    candidates = [
+        Candidate(
+            id=str(result.id),
+            name=result.name,
+            category=category.name,
+            description=result.content,
+            source="vector_store",
+            source_url=(
+                result.metadata.get("source_url", result.metadata.get("url"))
+                if isinstance(
+                    result.metadata.get("source_url", result.metadata.get("url")),
+                    str,
+                )
+                else None
+            ),
+            raw_signal=result.content,
+        )
+        for result in results
+    ]
+    logger.info(
+        "research_retrieval_complete",
+        extra={"category": category.name, "candidate_count": len(candidates)},
+    )
+
+    graded = await asyncio.to_thread(_grade_candidates, category, candidates)
+    logger.info(
+        "research_grading_complete",
+        extra={
+            "category": category.name,
+            "candidate_count": len(graded),
+            "fallback_count": sum(item.needs_fallback for item in graded),
+        },
+    )
+
+    fallback_triggered = any(item.needs_fallback for item in graded)
+    logger.info(
+        "research_fallback_decision",
+        extra={
+            "category": category.name,
+            "candidate_count": len(graded),
+            "fallback_triggered": fallback_triggered,
+        },
+    )
+    if fallback_triggered:
         try:
-            query_embedding = create_embeddings([query])[0]
+            web_results = await run_web_fallback_agent(category)
         except Exception as exc:
             raise ResearchCategoryError(
-                f"Embedding failed for category '{category.name}'."
+                f"Web fallback failed for category '{category.name}'."
             ) from exc
-
-        try:
-            pool = await create_pool()
-            results = await query_nearest_neighbors(
-                pool, query_embedding=query_embedding, top_k=5
-            )
-        except Exception as exc:
-            raise ResearchCategoryError(
-                f"Vector retrieval failed for category '{category.name}'."
-            ) from exc
-
-        candidates = [
+        candidates.extend(
             Candidate(
-                id=str(result.id),
-                name=result.name,
+                id=str(uuid4()),
+                name=result.title,
                 category=category.name,
                 description=result.content,
-                source="vector_store",
-                source_url=(
-                    result.metadata.get("source_url", result.metadata.get("url"))
-                    if isinstance(
-                        result.metadata.get("source_url", result.metadata.get("url")),
-                        str,
-                    )
-                    else None
-                ),
+                source="web_search",
+                source_url=result.url,
                 raw_signal=result.content,
             )
-            for result in results
-        ]
-        logger.info(
-            "research_retrieval_complete",
-            extra={"category": category.name, "candidate_count": len(candidates)},
+            for result in web_results
         )
-
-        graded = _grade_candidates(category, candidates)
+        graded = await asyncio.to_thread(_grade_candidates, category, candidates)
         logger.info(
             "research_grading_complete",
             extra={
                 "category": category.name,
                 "candidate_count": len(graded),
                 "fallback_count": sum(item.needs_fallback for item in graded),
+                "post_fallback": True,
             },
         )
 
-        fallback_triggered = any(item.needs_fallback for item in graded)
-        logger.info(
-            "research_fallback_decision",
-            extra={
-                "category": category.name,
-                "candidate_count": len(graded),
-                "fallback_triggered": fallback_triggered,
-            },
-        )
-        if fallback_triggered:
-            try:
-                web_results = await run_web_fallback_agent(category)
-            except Exception as exc:
-                raise ResearchCategoryError(
-                    f"Web fallback failed for category '{category.name}'."
-                ) from exc
-            candidates.extend(
-                Candidate(
-                    id=str(uuid4()),
-                    name=result.title,
-                    category=category.name,
-                    description=result.content,
-                    source="web_search",
-                    source_url=result.url,
-                    raw_signal=result.content,
-                )
-                for result in web_results
-            )
-            graded = _grade_candidates(category, candidates)
-            logger.info(
-                "research_grading_complete",
-                extra={
-                    "category": category.name,
-                    "candidate_count": len(graded),
-                    "fallback_count": sum(item.needs_fallback for item in graded),
-                    "post_fallback": True,
-                },
-            )
-
-        logger.info(
-            "research_category_complete",
-            extra={
-                "category": category.name,
-                "candidate_count": len(graded),
-                "fallback_triggered": fallback_triggered,
-            },
-        )
-        return {"candidates": graded}
-    finally:
-        if pool is not None:
-            await pool.close()
+    logger.info(
+        "research_category_complete",
+        extra={
+            "category": category.name,
+            "candidate_count": len(graded),
+            "fallback_triggered": fallback_triggered,
+        },
+    )
+    return {"candidates": graded}

@@ -21,6 +21,10 @@ class BriefState(TypedDict):
     trip_length_days: int
     # Categories preserve the supervisor's chosen research lanes for downstream search.
     categories: list[Category]
+    # Research iteration caps category selection revision at one additional pass.
+    research_iteration: int
+    # Replacement-only categories drive the bounded re-plan Send fan-out.
+    replan_categories: list[Category]
     # Candidate lists from Send API branches are appended into one shared collection.
     candidates: Annotated[list[Candidate], operator.add]
     # Graded candidates retain discovery history plus grader judgment for scoring.
