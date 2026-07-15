@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.graph.research import ResearchCategoryError, _grade_candidates, research_category
-from app.models.schemas import Candidate, Category
+from app.models.schemas import Candidate, Category, ScoredRecommendation
 from app.services.vector_store import VectorSearchResult
 from app.services.web_search import WebSearchResult
 
@@ -35,11 +35,87 @@ def _tool_output(candidate_ids, *, fallback=False):
     }
 
 
+def _scored_recommendation(
+    recommendation_id: str = "cached-id",
+    *,
+    name: str = "Cached Cafe",
+    source: str = "cache",
+) -> ScoredRecommendation:
+    return ScoredRecommendation(
+        id=recommendation_id,
+        name=name,
+        category="Late-night food",
+        description="A cached neighborhood spot.",
+        source=source,
+        raw_signal="Cached local evidence.",
+        relevance_score=0.9,
+        authenticity_signal="Cached authenticity signal.",
+        confidence="high",
+        needs_fallback=False,
+        bourdain_score=4,
+        scoring_rationale="Cached scoring rationale.",
+        passed_guardrail=True,
+    )
+
+
+async def _mock_scoring_node(state):
+    return {
+        "scored_recommendations": [
+            ScoredRecommendation(
+                **candidate.model_dump(),
+                bourdain_score=4,
+                scoring_rationale="Test rationale",
+                passed_guardrail=True,
+            )
+            for candidate in state["graded_candidates"]
+        ]
+    }
+
+
+def _mock_guardrail_node(state):
+    return {"scored_recommendations": state["scored_recommendations"]}
+
+
 class ResearchCategoryTests(IsolatedAsyncioTestCase):
     def setUp(self):
         self.category = Category(name="Late-night food", rationale="Find worker-focused spots")
         self.pool = MagicMock()
         self.pool.close = AsyncMock()
+
+        cache_get = patch(
+            "app.graph.research.get_cached_recommendations",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+        cache_write = patch(
+            "app.graph.research.write_category_cache",
+            new_callable=AsyncMock,
+        )
+        geocode = patch(
+            "app.graph.research.geocode_venue",
+            new_callable=AsyncMock,
+            return_value=None,
+        )
+        scoring = patch(
+            "app.graph.research.scoring_node",
+            new_callable=AsyncMock,
+            side_effect=_mock_scoring_node,
+        )
+        guardrail = patch(
+            "app.graph.research.guardrail_node",
+            side_effect=_mock_guardrail_node,
+        )
+
+        self.get_cached_recommendations = cache_get.start()
+        self.write_category_cache = cache_write.start()
+        self.geocode_venue = geocode.start()
+        self.scoring_node = scoring.start()
+        self.guardrail_node = guardrail.start()
+        self.addCleanup(cache_get.stop)
+        self.addCleanup(cache_write.stop)
+        self.addCleanup(geocode.stop)
+        self.addCleanup(scoring.stop)
+        self.addCleanup(guardrail.stop)
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
@@ -55,13 +131,13 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         query.return_value = [vector_result]
         grade.return_value = _tool_output([str(vector_result.id)])
 
-        result = await research_category(self.category)
+        result = await research_category(self.category, city_slug="test-city", city_name="Test City")
 
         embed.assert_called_once_with(["Late-night food: Find worker-focused spots"])
         query.assert_awaited_once_with(self.pool, query_embedding=embed.return_value[0], top_k=5)
         self.assertEqual(grade.call_count, 1)
         search.assert_not_called()
-        self.assertEqual(result["candidates"][0].source, "vector_store")
+        self.assertEqual(result["scored_recommendations"][0].source, "vector_store")
         self.pool.close.assert_not_awaited()
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
@@ -90,12 +166,12 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             WebSearchResult(title="Stall", url="https://web.example", content="Night stall")
         ]
 
-        result = await research_category(self.category)
+        result = await research_category(self.category, city_slug="test-city", city_name="Test City")
 
         search.assert_awaited_once_with(self.category)
         self.assertEqual(grade.call_count, 2)
-        self.assertEqual(len(result["candidates"]), 3)
-        self.assertEqual(result["candidates"][-1].source, "web_search")
+        self.assertEqual(len(result["scored_recommendations"]), 3)
+        self.assertEqual(result["scored_recommendations"][-1].source, "web_search")
 
     @patch("app.graph.research.call_forced_tool", side_effect=RuntimeError("bad tool"))
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
@@ -109,7 +185,7 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         query.return_value = [_result()]
 
         with self.assertRaisesRegex(ResearchCategoryError, "after one retry"):
-            await research_category(self.category)
+            await research_category(self.category, city_slug="test-city", city_name="Test City")
 
         self.assertEqual(grade.call_count, 2)
         self.pool.close.assert_not_awaited()
@@ -117,7 +193,26 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
     @patch("app.graph.research.create_embeddings", side_effect=RuntimeError("api down"))
     async def test_embedding_failure_is_visible(self, embed):
         with self.assertRaisesRegex(ResearchCategoryError, "Embedding failed"):
-            await research_category(self.category)
+            await research_category(self.category, city_slug="test-city", city_name="Test City")
+
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_cache_hit_returns_early(self, embed, query, grade):
+        cached = [_scored_recommendation()]
+        self.get_cached_recommendations.return_value = cached
+
+        result = await research_category(
+            self.category, city_slug="test-city", city_name="Test City"
+        )
+
+        self.assertEqual(result["scored_recommendations"], cached)
+        embed.assert_not_called()
+        query.assert_not_called()
+        grade.assert_not_called()
+        self.scoring_node.assert_not_called()
+        self.write_category_cache.assert_not_awaited()
+        self.geocode_venue.assert_not_awaited()
 
 
 class GradeMatchingTests(TestCase):

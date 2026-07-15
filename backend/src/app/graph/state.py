@@ -17,10 +17,13 @@ class BriefState(TypedDict):
 
     # The requested destination anchors every research, grading, and itinerary decision.
     destination: str
+    city_slug: str
     # Trip length determines how many itinerary days later assembly must produce.
     trip_length_days: int
     # Categories preserve the supervisor's chosen research lanes for downstream search.
     categories: list[Category]
+    # Selected categories are absent until the user confirms which research lanes to keep.
+    selected_categories: list[Category] | None
     # Research iteration caps category selection revision at one additional pass.
     research_iteration: int
     # Replacement-only categories drive the bounded re-plan Send fan-out.

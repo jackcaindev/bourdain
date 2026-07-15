@@ -49,7 +49,9 @@ class Candidate(BaseModel):
             "grader-specific interpretation is added."
         )
     )
-    source: Literal["vector_store", "web_search"] = Field(
+    lat: float | None = None
+    lng: float | None = None
+    source: Literal["vector_store", "web_search", "cache"] = Field(
         description=(
             "Records the discovery channel so the app can distinguish local "
             "retrieval results from fallback web search results."
@@ -239,6 +241,10 @@ class ErrorPayload(BaseModel):
     )
 
 
+class CategoryListPayload(BaseModel):
+    categories: list[Category]
+
+
 class HitlPayload(BaseModel):
     """Recommendations presented when the graph pauses for user selection."""
 
@@ -259,6 +265,11 @@ class ItineraryPayload(BaseModel):
             "itinerary without making a separate request."
         )
     )
+
+
+class CacheHitPayload(BaseModel):
+    category: str
+    recommendations_count: int
 
 
 class SSEEvent(BaseModel):
@@ -293,8 +304,10 @@ class SSEEvent(BaseModel):
         | ScorePayload
         | FallbackPayload
         | ErrorPayload
+        | CategoryListPayload
         | HitlPayload
         | ItineraryPayload
+        | CacheHitPayload
         | None
     ) = Field(
         default=None,

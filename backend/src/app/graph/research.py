@@ -8,11 +8,23 @@ from uuid import uuid4
 
 from pydantic import BaseModel, TypeAdapter
 
-from app.models.schemas import Candidate, Category, GradedCandidate
+from app.graph.guardrails import guardrail_node
+from app.graph.scoring import scoring_node
+from app.graph.web_fallback_agent import run_web_fallback_agent
+from app.models.schemas import (
+    Candidate,
+    Category,
+    GradedCandidate,
+    ScoredRecommendation,
+)
+from app.services.category_cache import (
+    get_cached_recommendations,
+    write_category_cache,
+)
 from app.services.embeddings import create_embeddings
+from app.services.geocoding import geocode_venue
 from app.services.llm import call_forced_tool
 from app.services.vector_store import get_shared_pool, query_nearest_neighbors
-from app.graph.web_fallback_agent import run_web_fallback_agent
 
 
 logger = logging.getLogger(__name__)
@@ -153,8 +165,24 @@ def _grade_candidates(
     ) from last_error
 
 
-async def research_category(category: Category) -> dict[str, list[GradedCandidate]]:
+async def research_category(
+    category: Category, city_slug: str, city_name: str
+) -> dict[str, list[ScoredRecommendation]]:
     """Retrieve and grade candidates for one Send API category invocation."""
+
+    cached_recommendations = await get_cached_recommendations(
+        city_slug, category.name
+    )
+    if cached_recommendations is not None:
+        logger.debug(
+            "research_category_cache_hit",
+            extra={
+                "city_slug": city_slug,
+                "category": category.name,
+                "candidate_count": len(cached_recommendations),
+            },
+        )
+        return {"scored_recommendations": cached_recommendations}
 
     logger.info(
         "research_category_start",
@@ -259,4 +287,41 @@ async def research_category(category: Category) -> dict[str, list[GradedCandidat
             "fallback_triggered": fallback_triggered,
         },
     )
-    return {"candidates": graded}
+
+    scoring_result = await scoring_node(  # type: ignore[arg-type]
+        {"graded_candidates": graded}
+    )
+    guardrail_result = await asyncio.to_thread(  # type: ignore[arg-type]
+        guardrail_node, scoring_result
+    )
+    scored_recommendations = guardrail_result["scored_recommendations"]
+
+    geocoding_results = await asyncio.gather(
+        *(
+            geocode_venue(recommendation.name, city_name)
+            for recommendation in scored_recommendations
+        ),
+        return_exceptions=True,
+    )
+    for recommendation, coordinates in zip(
+        scored_recommendations, geocoding_results, strict=True
+    ):
+        if isinstance(coordinates, BaseException) or coordinates is None:
+            continue
+        recommendation.lat, recommendation.lng = coordinates
+
+    try:
+        await write_category_cache(
+            city_slug, category.name, scored_recommendations
+        )
+    except Exception:
+        logger.exception(
+            "research_category_cache_write_failed",
+            extra={
+                "city_slug": city_slug,
+                "category": category.name,
+                "candidate_count": len(scored_recommendations),
+            },
+        )
+
+    return {"scored_recommendations": scored_recommendations}
