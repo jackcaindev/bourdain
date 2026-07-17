@@ -25,7 +25,7 @@ def _candidate(candidate_id: str, name: str = "Cafe") -> GradedCandidate:
     )
 
 
-def _score(candidate_id: str, score: int = 4) -> dict[str, object]:
+def _score(candidate_id: int, score: int = 4) -> dict[str, object]:
     return {
         "candidate_id": candidate_id,
         "bourdain_score": score,
@@ -46,7 +46,7 @@ class ScoreCandidatesTests(TestCase):
     @patch("app.graph.scoring.call_forced_tool")
     def test_scores_batch_in_one_call(self, forced_tool):
         forced_tool.return_value = {
-            "scores": [_score(candidate.id) for candidate in self.candidates]
+            "scores": [_score(index) for index in range(1, len(self.candidates) + 1)]
         }
 
         result = _score_candidates(self.candidates)
@@ -61,13 +61,17 @@ class ScoreCandidatesTests(TestCase):
         ]["scores"]
         self.assertEqual(scores_schema["minItems"], 2)
         self.assertEqual(scores_schema["maxItems"], 2)
+        self.assertEqual(
+            scores_schema["items"]["properties"]["candidate_id"]["type"],
+            "integer",
+        )
 
     @patch("app.graph.scoring.call_forced_tool")
     def test_matches_reordered_scores_by_candidate_id(self, forced_tool):
         forced_tool.return_value = {
             "scores": [
-                _score("second-id", score=2),
-                _score("first-id", score=5),
+                _score(2, score=2),
+                _score(1, score=5),
             ]
         }
 
@@ -86,7 +90,7 @@ class ScoreCandidatesTests(TestCase):
     @patch("app.graph.scoring.call_forced_tool")
     def test_unknown_candidate_id_retries_then_raises(self, forced_tool):
         forced_tool.return_value = {
-            "scores": [_score("first-id"), _score("unknown-id")]
+            "scores": [_score(1), _score(3)]
         }
 
         with self.assertRaisesRegex(ScoringError, "after one retry") as raised:
@@ -94,6 +98,36 @@ class ScoreCandidatesTests(TestCase):
 
         self.assertEqual(forced_tool.call_count, 2)
         self.assertIn("unknown candidate_id", str(raised.exception.__cause__))
+
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_duplicate_candidate_id_retries_then_raises(self, forced_tool):
+        forced_tool.return_value = {"scores": [_score(1), _score(1)]}
+
+        with self.assertRaisesRegex(ScoringError, "after one retry") as raised:
+            _score_candidates(self.candidates)
+
+        self.assertEqual(forced_tool.call_count, 2)
+        self.assertIn("duplicate score", str(raised.exception.__cause__))
+
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_missing_candidate_score_retries_then_raises(self, forced_tool):
+        forced_tool.return_value = {"scores": [_score(1)]}
+
+        with self.assertRaisesRegex(ScoringError, "after one retry") as raised:
+            _score_candidates(self.candidates)
+
+        self.assertEqual(forced_tool.call_count, 2)
+        self.assertIn("2", str(raised.exception.__cause__))
+
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_matches_index_not_similar_real_id(self, forced_tool):
+        candidates = [_candidate("other-id", "First"), _candidate("1", "Second")]
+        forced_tool.return_value = {"scores": [_score(1, score=5), _score(2, score=2)]}
+
+        result = _score_candidates(candidates)
+
+        self.assertEqual([item.id for item in result], ["other-id", "1"])
+        self.assertEqual([item.bourdain_score for item in result], [5, 2])
 
 
 class ScoringNodeTests(IsolatedAsyncioTestCase):

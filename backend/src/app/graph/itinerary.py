@@ -1,5 +1,6 @@
 """Deterministic itinerary assembly for selected recommendations."""
 
+import re
 from collections import Counter, deque
 
 from app.graph.state import BriefState
@@ -24,8 +25,11 @@ MAX_ACTIVITIES_PER_DAY = 2
 
 
 def _is_meal_candidate(recommendation: ScoredRecommendation) -> bool:
-    category = recommendation.category.casefold()
-    return any(keyword in category for keyword in MEAL_CATEGORY_KEYWORDS)
+    return any(
+        re.search(rf"\b{re.escape(keyword)}\b", candidate.casefold())
+        for candidate in (recommendation.name, recommendation.category)
+        for keyword in MEAL_CATEGORY_KEYWORDS
+    )
 
 
 def _neighborhood_focus(

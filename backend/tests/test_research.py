@@ -45,6 +45,9 @@ def _scored_recommendation(
     *,
     name: str = "Cached Cafe",
     source: str = "cache",
+    relevance_score: float = 0.9,
+    bourdain_score: int = 4,
+    passed_guardrail: bool = True,
 ) -> ScoredRecommendation:
     return ScoredRecommendation(
         id=recommendation_id,
@@ -53,13 +56,13 @@ def _scored_recommendation(
         description="A cached neighborhood spot.",
         source=source,
         raw_signal="Cached local evidence.",
-        relevance_score=0.9,
+        relevance_score=relevance_score,
         authenticity_signal="Cached authenticity signal.",
         confidence="high",
         needs_fallback=False,
-        bourdain_score=4,
+        bourdain_score=bourdain_score,
         scoring_rationale="Cached scoring rationale.",
-        passed_guardrail=True,
+        passed_guardrail=passed_guardrail,
     )
 
 
@@ -140,7 +143,7 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         get_shared_pool.return_value = self.pool
         vector_result = _result()
         query.return_value = [vector_result]
-        grade.return_value = _tool_output([str(vector_result.id)])
+        grade.return_value = _tool_output([1])
 
         result = await research_category(self.category, city_slug="test-city", city_name="Test City")
 
@@ -155,6 +158,76 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         search.assert_not_called()
         self.assertEqual(result["scored_recommendations"][0].source, "vector_store")
         self.pool.close.assert_not_awaited()
+
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_filters_and_sorts_before_geocoding_cache_and_return(
+        self, embed, get_shared_pool, query, grade
+    ):
+        embed.return_value = [[0.0] * 1536]
+        get_shared_pool.return_value = self.pool
+        vector_result = _result()
+        query.return_value = [vector_result]
+        grade.return_value = _tool_output([1])
+
+        failed = _scored_recommendation(
+            "failed",
+            name="Failed",
+            source="vector_store",
+            relevance_score=1.0,
+            bourdain_score=5,
+            passed_guardrail=False,
+        )
+        score_four_low_relevance = _scored_recommendation(
+            "four-low",
+            name="Four Low",
+            source="vector_store",
+            relevance_score=0.2,
+            bourdain_score=4,
+        )
+        score_three = _scored_recommendation(
+            "three",
+            name="Three",
+            source="vector_store",
+            relevance_score=0.9,
+            bourdain_score=3,
+        )
+        score_four_high_relevance = _scored_recommendation(
+            "four-high",
+            name="Four High",
+            source="vector_store",
+            relevance_score=0.8,
+            bourdain_score=4,
+        )
+        self.guardrail_node.side_effect = lambda _state: {
+            "scored_recommendations": [
+                failed,
+                score_four_low_relevance,
+                score_three,
+                score_four_high_relevance,
+            ]
+        }
+
+        result = await research_category(
+            self.category, city_slug="test-city", city_name="Test City"
+        )
+
+        expected = [
+            score_four_high_relevance,
+            score_four_low_relevance,
+            score_three,
+        ]
+        self.assertEqual(result["scored_recommendations"], expected)
+        self.assertEqual(
+            [call.args[0] for call in self.geocode_venue.await_args_list],
+            [item.name for item in expected],
+        )
+        self.write_category_cache.assert_awaited_once_with(
+            "test-city", self.category.name, expected
+        )
+        self.insert_candidate.assert_not_awaited()
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
@@ -181,7 +254,9 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
                     ]
                 }
             candidates_json = kwargs["user_prompt"].split("Candidates:\n", 1)[1]
-            candidate_ids = [item["id"] for item in json.loads(candidates_json)]
+            candidate_ids = [
+                item["candidate_id"] for item in json.loads(candidates_json)
+            ]
             return _tool_output(
                 candidate_ids,
                 fallback=grade.call_count == 1,
@@ -223,7 +298,9 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
                     ]
                 }
             candidates_json = kwargs["user_prompt"].split("Candidates:\n", 1)[1]
-            candidate_ids = [item["id"] for item in json.loads(candidates_json)]
+            candidate_ids = [
+                item["candidate_id"] for item in json.loads(candidates_json)
+            ]
             return _tool_output(candidate_ids)
 
         grade.side_effect = grade_batch
@@ -286,7 +363,9 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
                     ]
                 }
             candidates_json = kwargs["user_prompt"].split("Candidates:\n", 1)[1]
-            candidate_ids = [item["id"] for item in json.loads(candidates_json)]
+            candidate_ids = [
+                item["candidate_id"] for item in json.loads(candidates_json)
+            ]
             return _tool_output(candidate_ids)
 
         tool_call.side_effect = tool_output
@@ -323,7 +402,7 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         get_shared_pool.return_value = self.pool
         vector_result = _result()
         query.return_value = [vector_result]
-        grade.return_value = _tool_output([str(vector_result.id)])
+        grade.return_value = _tool_output([1])
 
         passed_web = _scored_recommendation(
             str(uuid4()), name="Passed Web", source="web_search"
@@ -426,11 +505,11 @@ class GradeMatchingTests(TestCase):
         grade.return_value = {
             "grades": [
                 {
-                    **_tool_output(["second-id"])["grades"][0],
+                    **_tool_output([2])["grades"][0],
                     "relevance_score": 0.2,
                 },
                 {
-                    **_tool_output(["first-id"])["grades"][0],
+                    **_tool_output([1])["grades"][0],
                     "relevance_score": 0.9,
                 },
             ]
@@ -443,7 +522,7 @@ class GradeMatchingTests(TestCase):
 
     @patch("app.graph.research.call_forced_tool")
     def test_unknown_candidate_id_retries_then_raises(self, grade):
-        grade.return_value = _tool_output(["first-id", "unknown-id"])
+        grade.return_value = _tool_output([1, 3])
 
         with self.assertRaisesRegex(ResearchCategoryError, "after one retry") as raised:
             _grade_candidates(self.category, self.candidates)
@@ -453,18 +532,46 @@ class GradeMatchingTests(TestCase):
 
     @patch("app.graph.research.call_forced_tool")
     def test_missing_candidate_grade_retries_then_raises(self, grade):
-        grade.return_value = _tool_output(["first-id"])
+        grade.return_value = _tool_output([1])
 
         with self.assertRaisesRegex(ResearchCategoryError, "after one retry") as raised:
             _grade_candidates(self.category, self.candidates)
 
         self.assertEqual(grade.call_count, 2)
-        self.assertIn("second-id", str(raised.exception.__cause__))
+        self.assertIn("2", str(raised.exception.__cause__))
+
+    @patch("app.graph.research.call_forced_tool")
+    def test_duplicate_candidate_id_retries_then_raises(self, grade):
+        grade.return_value = _tool_output([1, 1])
+
+        with self.assertRaisesRegex(ResearchCategoryError, "after one retry") as raised:
+            _grade_candidates(self.category, self.candidates)
+
+        self.assertEqual(grade.call_count, 2)
+        self.assertIn("duplicate grade", str(raised.exception.__cause__))
+
+    @patch("app.graph.research.call_forced_tool")
+    def test_matches_index_not_similar_real_id(self, grade):
+        candidates = [
+            self.candidates[0].model_copy(update={"id": "other-id"}),
+            self.candidates[1].model_copy(update={"id": "1"}),
+        ]
+        grade.return_value = {
+            "grades": [
+                {**_tool_output([1])["grades"][0], "relevance_score": 0.9},
+                {**_tool_output([2])["grades"][0], "relevance_score": 0.2},
+            ]
+        }
+
+        result = _grade_candidates(self.category, candidates)
+
+        self.assertEqual([item.id for item in result], ["other-id", "1"])
+        self.assertEqual([item.relevance_score for item in result], [0.9, 0.2])
 
 
 class VenueExtractionTests(TestCase):
     @patch("app.graph.research.call_forced_tool")
-    def test_caps_extracted_venues_at_ten(self, extract):
+    def test_caps_extracted_venues_at_five(self, extract):
         category = Category(name="Food", rationale="Find local institutions")
         web_results = [
             WebSearchResult(
@@ -481,20 +588,20 @@ class VenueExtractionTests(TestCase):
                     "description": "A distinct, well-evidenced local place.",
                     "source_url": f"https://example.com/{index}",
                 }
-                for index in range(10)
+                for index in range(5)
             ]
         }
 
         result = _extract_venues(category, web_results)
 
-        self.assertEqual(len(result), 10)
+        self.assertEqual(len(result), 5)
         self.assertEqual(
             extract.call_args.kwargs["tool_schema"]["input_schema"]["properties"][
                 "venues"
             ]["maxItems"],
-            10,
+            5,
         )
-        self.assertIn("at most 10 venues", extract.call_args.kwargs["system_prompt"])
+        self.assertIn("at most 5 venues", extract.call_args.kwargs["system_prompt"])
         self.assertIn(
             "prioritize the most specific, well-evidenced venues",
             extract.call_args.kwargs["system_prompt"],

@@ -1,6 +1,12 @@
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from anthropic import APIConnectionError, APITimeoutError, RateLimitError
+from langchain.agents.middleware import (
+    ModelRetryMiddleware,
+    SummarizationMiddleware,
+    ToolCallLimitMiddleware,
+)
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -43,6 +49,31 @@ class _AlwaysSearchModel(BaseChatModel):
 
 
 class WebFallbackAgentCapTests(IsolatedAsyncioTestCase):
+    @patch("app.graph.web_fallback_agent.create_agent")
+    def test_constructs_agent_with_retry_summarization_and_tool_limit(
+        self, create_agent
+    ):
+        model = _AlwaysSearchModel()
+
+        _create_fallback_agent(model=model)
+
+        middleware = create_agent.call_args.kwargs["middleware"]
+        self.assertEqual(len(middleware), 3)
+        retry, summarization, tool_limit = middleware
+        self.assertIsInstance(retry, ModelRetryMiddleware)
+        self.assertEqual(retry.max_retries, 3)
+        self.assertEqual(
+            retry.retry_on,
+            (RateLimitError, APIConnectionError, APITimeoutError),
+        )
+        self.assertEqual(retry.backoff_factor, 2.0)
+        self.assertEqual(retry.initial_delay, 1.0)
+        self.assertEqual(retry.max_delay, 30.0)
+        self.assertIsInstance(summarization, SummarizationMiddleware)
+        self.assertIs(summarization.model, model)
+        self.assertEqual(summarization.trigger, ("tokens", 4000))
+        self.assertIsInstance(tool_limit, ToolCallLimitMiddleware)
+
     @patch("app.graph.web_fallback_agent._create_fallback_agent")
     async def test_leads_agent_query_with_city_name(self, create_agent):
         agent = MagicMock()

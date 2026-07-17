@@ -3,8 +3,13 @@
 import logging
 from typing import Any
 
+from anthropic import APIConnectionError, APITimeoutError, RateLimitError
 from langchain.agents import create_agent
-from langchain.agents.middleware import ToolCallLimitMiddleware
+from langchain.agents.middleware import (
+    ModelRetryMiddleware,
+    SummarizationMiddleware,
+    ToolCallLimitMiddleware,
+)
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -46,6 +51,14 @@ def _create_fallback_agent(
         tools=[search_tool],
         system_prompt=_SYSTEM_PROMPT,
         middleware=[
+            ModelRetryMiddleware(
+                max_retries=3,
+                retry_on=(RateLimitError, APIConnectionError, APITimeoutError),
+                backoff_factor=2.0,
+                initial_delay=1.0,
+                max_delay=30.0,
+            ),
+            SummarizationMiddleware(model=model, trigger=("tokens", 4000)),
             ToolCallLimitMiddleware(
                 tool_name=search_tool.name,
                 run_limit=MAX_SEARCH_TOOL_CALLS,

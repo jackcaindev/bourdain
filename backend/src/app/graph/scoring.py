@@ -22,7 +22,7 @@ class ScoringError(RuntimeError):
 
 
 class _CandidateScore(BaseModel):
-    candidate_id: str
+    candidate_id: int
     bourdain_score: int = Field(ge=1, le=5)
     scoring_rationale: str
     locally_owned_signal: str | None = None
@@ -45,7 +45,7 @@ def _scoring_tool_schema(candidate_count: int) -> dict[str, Any]:
                     "items": {
                         "type": "object",
                         "properties": {
-                            "candidate_id": {"type": "string"},
+                            "candidate_id": {"type": "integer"},
                             "bourdain_score": {
                                 "type": "integer",
                                 "minimum": 1,
@@ -78,7 +78,7 @@ def _scoring_tool_schema(candidate_count: int) -> dict[str, Any]:
 
 
 def _system_prompt() -> str:
-    return """You score a batch of graded candidates for The Bourdain Brief. Score every candidate independently rather than ranking or comparing candidates. Echo each candidate's id exactly in candidate_id so every score can be matched unambiguously. Apply this exact rubric:
+    return """You score a batch of graded candidates for The Bourdain Brief. Score every candidate independently rather than ranking or comparing candidates. Candidates are presented in order 1 through N. Echo each candidate's integer candidate_id index exactly; do not echo or copy any id field that appears elsewhere in the payload. Apply this exact rubric:
 
 1 — Corporate chain or franchise; success driven by marketing, foot traffic, or brand recognition rather than local roots. No independent character.
 2 — Independently operated but generic — nothing distinctive, could be swapped for any similar business in any city. Or: touristy in character/marketing even if not literally a chain.
@@ -89,11 +89,11 @@ def _system_prompt() -> str:
 Judge only from each supplied candidate's evidence. Populate locally_owned_signal only when raw_signal or authenticity_signal actually contains ownership evidence; otherwise return null. Never infer or invent ownership evidence. Use the provided tool exactly once."""
 
 
-def _user_prompt(candidates: list[GradedCandidate]) -> str:
+def _user_prompt(candidates: list[dict[str, Any]]) -> str:
     return (
         "Score every graded candidate independently. Do not compare candidates "
         "with one another.\n\n"
-        f"Candidates:\n{json.dumps([candidate.model_dump(mode='json') for candidate in candidates], ensure_ascii=False)}"
+        f"Candidates:\n{json.dumps(candidates, ensure_ascii=False)}"
     )
 
 
@@ -105,13 +105,20 @@ def _score_candidates(
     if not candidates:
         return []
 
+    candidates_by_index = {
+        index: candidate for index, candidate in enumerate(candidates, start=1)
+    }
+    payload = [
+        {**candidate.model_dump(mode="json"), "candidate_id": index}
+        for index, candidate in candidates_by_index.items()
+    ]
     last_error: Exception | None = None
 
     for attempt in range(2):
         try:
             tool_input = call_forced_tool(
                 system_prompt=_system_prompt(),
-                user_prompt=_user_prompt(candidates),
+                user_prompt=_user_prompt(payload),
                 tool_schema=_scoring_tool_schema(len(candidates)),
                 model=SCORING_MODEL,
                 max_tokens=4000,
@@ -123,9 +130,9 @@ def _score_candidates(
             if len(candidates_by_id) != len(candidates):
                 raise ValueError("candidate batch contains duplicate candidate ids")
 
-            scores_by_id: dict[str, _CandidateScore] = {}
+            scores_by_id: dict[int, _CandidateScore] = {}
             for score in scores:
-                if score.candidate_id not in candidates_by_id:
+                if score.candidate_id not in candidates_by_index:
                     raise ValueError(
                         "scorer returned unknown candidate_id "
                         f"'{score.candidate_id}'"
@@ -137,23 +144,23 @@ def _score_candidates(
                     )
                 scores_by_id[score.candidate_id] = score
 
-            missing_ids = candidates_by_id.keys() - scores_by_id.keys()
+            missing_ids = candidates_by_index.keys() - scores_by_id.keys()
             if missing_ids:
                 raise ValueError(
                     "scorer omitted scores for candidate_id(s): "
-                    f"{', '.join(sorted(missing_ids))}"
+                    f"{', '.join(str(index) for index in sorted(missing_ids))}"
                 )
 
             return [
                 ScoredRecommendation(
                     **candidate.model_dump(),
-                    **scores_by_id[candidate.id].model_dump(
+                    **scores_by_id[index].model_dump(
                         exclude={"candidate_id"}
                     ),
                     passed_guardrail=False,
                     guardrail_note=None,
                 )
-                for candidate in candidates
+                for index, candidate in candidates_by_index.items()
             ]
         except Exception as exc:
             last_error = exc

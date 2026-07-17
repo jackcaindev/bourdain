@@ -1,7 +1,11 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from app.graph.guardrails import GUARDRAIL_MODEL, guardrail_node
+from app.graph.guardrails import (
+    GUARDRAIL_MODEL,
+    MIN_BOURDAIN_SCORE,
+    guardrail_node,
+)
 from app.models.schemas import ScoredRecommendation
 
 
@@ -9,6 +13,7 @@ def _recommendation(
     recommendation_id: str,
     *,
     raw_signal: str = "Family-owned since 1972 and popular with neighborhood regulars.",
+    bourdain_score: int = 4,
 ) -> ScoredRecommendation:
     return ScoredRecommendation(
         id=recommendation_id,
@@ -21,7 +26,7 @@ def _recommendation(
         authenticity_signal="A longstanding neighborhood gathering place.",
         confidence="high",
         needs_fallback=False,
-        bourdain_score=4,
+        bourdain_score=bourdain_score,
         scoring_rationale="Local ownership and neighborhood history are evidenced.",
         locally_owned_signal="Family-owned since 1972.",
         passed_guardrail=False,
@@ -38,6 +43,56 @@ def _result(recommendation_id: str, *, grounded: bool = True) -> dict[str, objec
 
 
 class GuardrailNodeTests(TestCase):
+    @patch("app.graph.guardrails.call_forced_tool")
+    def test_rejects_scores_below_minimum_and_only_checks_passing_scores(
+        self, forced_tool
+    ):
+        forced_tool.return_value = {"results": [_result("score-3")]}
+
+        result = guardrail_node(
+            {
+                "scored_recommendations": [
+                    _recommendation("score-1", bourdain_score=1),
+                    _recommendation("score-2", bourdain_score=2),
+                    _recommendation("score-3", bourdain_score=MIN_BOURDAIN_SCORE),
+                ]
+            }
+        )["scored_recommendations"]
+
+        self.assertEqual(
+            [item.passed_guardrail for item in result], [False, False, True]
+        )
+        self.assertEqual(
+            result[0].guardrail_note,
+            f"bourdain_score below minimum: 1 < {MIN_BOURDAIN_SCORE}",
+        )
+        self.assertEqual(
+            result[1].guardrail_note,
+            f"bourdain_score below minimum: 2 < {MIN_BOURDAIN_SCORE}",
+        )
+        user_prompt = forced_tool.call_args.kwargs["user_prompt"]
+        self.assertNotIn('"id": "score-1"', user_prompt)
+        self.assertNotIn('"id": "score-2"', user_prompt)
+        self.assertIn('"id": "score-3"', user_prompt)
+
+    @patch("app.graph.guardrails.call_forced_tool")
+    def test_combines_deterministic_failure_reasons(self, forced_tool):
+        result = guardrail_node(
+            {
+                "scored_recommendations": [
+                    _recommendation("weak", raw_signal="short", bourdain_score=2)
+                ]
+            }
+        )["scored_recommendations"]
+
+        forced_tool.assert_not_called()
+        self.assertFalse(result[0].passed_guardrail)
+        self.assertEqual(
+            result[0].guardrail_note,
+            "insufficient raw_signal evidence: 5 characters; "
+            f"bourdain_score below minimum: 2 < {MIN_BOURDAIN_SCORE}",
+        )
+
     @patch("app.graph.guardrails.call_forced_tool")
     def test_stage_1_flags_short_signal_and_excludes_it_from_batch(self, forced_tool):
         forced_tool.return_value = {"results": [_result("good")]}

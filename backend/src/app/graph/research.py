@@ -42,7 +42,7 @@ class ResearchCategoryError(RuntimeError):
 
 
 class _Grade(BaseModel):
-    candidate_id: str
+    candidate_id: int
     relevance_score: float
     authenticity_signal: str
     confidence: str
@@ -73,7 +73,7 @@ def _grading_tool_schema(candidate_count: int) -> dict[str, Any]:
                     "items": {
                         "type": "object",
                         "properties": {
-                            "candidate_id": {"type": "string"},
+                            "candidate_id": {"type": "integer"},
                             "relevance_score": {"type": "number", "minimum": 0, "maximum": 1},
                             "authenticity_signal": {"type": "string"},
                             "confidence": {
@@ -108,7 +108,7 @@ def _venue_extraction_tool_schema() -> dict[str, Any]:
             "properties": {
                 "venues": {
                     "type": "array",
-                    "maxItems": 10,
+                    "maxItems": 5,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -142,7 +142,7 @@ def _extract_venues(
             "places. Merge duplicate mentions of the same venue across results "
             "into one entry. Keep each venue's description to one or two sentences "
             "of specific, authentic detail; this is a candidate summary, not a full "
-            "write-up. Return at most 10 venues. If more than 10 are mentioned, "
+            "write-up. Return at most 5 venues. If more than 5 are mentioned, "
             "prioritize the most specific, well-evidenced venues across the supplied "
             "results. For each venue, choose the single most relevant source_url from "
             "only the URLs present in the supplied results. Use the tool once."
@@ -161,7 +161,13 @@ def _extract_venues(
 def _grade_candidates(
     category: Category, candidates: list[Candidate]
 ) -> list[GradedCandidate]:
-    payload = [candidate.model_dump(mode="json") for candidate in candidates]
+    candidates_by_index = {
+        index: candidate for index, candidate in enumerate(candidates, start=1)
+    }
+    payload = [
+        {**candidate.model_dump(mode="json"), "candidate_id": index}
+        for index, candidate in candidates_by_index.items()
+    ]
     last_error: Exception | None = None
 
     for attempt in range(2):
@@ -171,8 +177,9 @@ def _grade_candidates(
                     "You are the CRAG grader for The Bourdain Brief. Assess every "
                     "candidate independently for relevance and authentic, specific, "
                     "locally grounded signal; do not merely rank candidates against "
-                    "one another. Echo each candidate's id exactly in candidate_id so "
-                    "every grade can be matched unambiguously to its candidate. Mark "
+                    "one another. Candidates are presented in order 1 through N. Echo "
+                    "each candidate's integer candidate_id index exactly; do not echo "
+                    "or copy any id field that appears elsewhere in the payload. Mark "
                     "needs_fallback when that candidate lacks sufficient credible "
                     "evidence and broader web research is warranted. Use the tool once."
                 ),
@@ -189,9 +196,9 @@ def _grade_candidates(
             if len(candidates_by_id) != len(candidates):
                 raise ValueError("candidate batch contains duplicate candidate ids")
 
-            grades_by_id: dict[str, _Grade] = {}
+            grades_by_id: dict[int, _Grade] = {}
             for grade in grades:
-                if grade.candidate_id not in candidates_by_id:
+                if grade.candidate_id not in candidates_by_index:
                     raise ValueError(
                         "grader returned unknown candidate_id "
                         f"'{grade.candidate_id}'"
@@ -203,19 +210,19 @@ def _grade_candidates(
                     )
                 grades_by_id[grade.candidate_id] = grade
 
-            missing_ids = candidates_by_id.keys() - grades_by_id.keys()
+            missing_ids = candidates_by_index.keys() - grades_by_id.keys()
             if missing_ids:
                 raise ValueError(
                     "grader omitted grades for candidate_id(s): "
-                    f"{', '.join(sorted(missing_ids))}"
+                    f"{', '.join(str(index) for index in sorted(missing_ids))}"
                 )
 
             return [
                 GradedCandidate(
                     **candidate.model_dump(),
-                    **grades_by_id[candidate.id].model_dump(exclude={"candidate_id"}),
+                    **grades_by_id[index].model_dump(exclude={"candidate_id"}),
                 )
-                for candidate in candidates
+                for index, candidate in candidates_by_index.items()
             ]
         except Exception as exc:
             last_error = exc
@@ -388,7 +395,18 @@ async def research_category(
     guardrail_result = await asyncio.to_thread(  # type: ignore[arg-type]
         guardrail_node, scoring_result
     )
-    scored_recommendations = guardrail_result["scored_recommendations"]
+    scored_recommendations = sorted(
+        (
+            recommendation
+            for recommendation in guardrail_result["scored_recommendations"]
+            if recommendation.passed_guardrail
+        ),
+        key=lambda recommendation: (
+            recommendation.bourdain_score,
+            recommendation.relevance_score,
+        ),
+        reverse=True,
+    )
 
     geocoding_results = await asyncio.gather(
         *(

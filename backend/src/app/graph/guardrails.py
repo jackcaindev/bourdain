@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 GUARDRAIL_MODEL = "claude-haiku-4-5"
 MIN_RAW_SIGNAL_LENGTH = 20
+MIN_BOURDAIN_SCORE = 3
 
 
 class GuardrailCheckError(RuntimeError):
@@ -177,13 +178,21 @@ def guardrail_node(
     stage_2_candidates: list[ScoredRecommendation] = []
     deterministic_notes: list[str | None] = []
     for recommendation in recommendations:
+        failure_reasons: list[str] = []
         evidence_length = len(recommendation.raw_signal.strip())
         if evidence_length < MIN_RAW_SIGNAL_LENGTH:
-            deterministic_notes.append(
+            failure_reasons.append(
                 f"insufficient raw_signal evidence: {evidence_length} characters"
             )
-        else:
-            deterministic_notes.append(None)
+        if recommendation.bourdain_score < MIN_BOURDAIN_SCORE:
+            failure_reasons.append(
+                "bourdain_score below minimum: "
+                f"{recommendation.bourdain_score} < {MIN_BOURDAIN_SCORE}"
+            )
+
+        deterministic_note = "; ".join(failure_reasons) or None
+        deterministic_notes.append(deterministic_note)
+        if deterministic_note is None:
             stage_2_candidates.append(recommendation)
 
     deterministic_fail_count = sum(note is not None for note in deterministic_notes)

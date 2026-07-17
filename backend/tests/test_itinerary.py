@@ -1,16 +1,21 @@
 from unittest import TestCase
 
-from app.graph.itinerary import MAX_ACTIVITIES_PER_DAY, assemble_itinerary
+from app.graph.itinerary import (
+    MAX_ACTIVITIES_PER_DAY,
+    _is_meal_candidate,
+    assemble_itinerary,
+)
 from app.models.schemas import ScoredRecommendation
 
 
 def _recommendation(
     recommendation_id: str,
     category: str,
+    name: str | None = None,
 ) -> ScoredRecommendation:
     return ScoredRecommendation(
         id=recommendation_id,
-        name=recommendation_id.title(),
+        name=name or recommendation_id.title(),
         category=category,
         description="A selected recommendation.",
         source="vector_store",
@@ -44,6 +49,48 @@ def _assemble(
 
 
 class AssembleItineraryTests(TestCase):
+    def test_meal_candidate_requires_whole_word_bar_match(self):
+        recommendation = _recommendation(
+            "barton-springs",
+            "Barton Springs & Austin's Outdoor Water Culture",
+        )
+
+        self.assertFalse(_is_meal_candidate(recommendation))
+
+    def test_meal_candidate_requires_whole_word_eat_match(self):
+        recommendation = _recommendation(
+            "amphitheater-district",
+            "Amphitheater District",
+        )
+
+        self.assertFalse(_is_meal_candidate(recommendation))
+
+    def test_meal_candidate_still_matches_real_food_category(self):
+        recommendation = _recommendation(
+            "food-truck",
+            "Food Truck & Street Food Subculture",
+        )
+
+        self.assertTrue(_is_meal_candidate(recommendation))
+
+    def test_meal_candidate_matches_food_keyword_in_name(self):
+        recommendation = _recommendation(
+            "ciscos",
+            "East Austin Craft & Neighborhood Transformation",
+            name="Cisco's Restaurant Bakery & Bar",
+        )
+
+        self.assertTrue(_is_meal_candidate(recommendation))
+
+    def test_meal_candidate_rejects_name_and_category_without_food_keyword(self):
+        recommendation = _recommendation(
+            "canopy",
+            "East Austin Craft & Neighborhood Transformation",
+            name="Canopy Arts Complex",
+        )
+
+        self.assertFalse(_is_meal_candidate(recommendation))
+
     def test_distributes_meals_and_activities_evenly_across_days(self):
         recommendations = [
             *[_recommendation(f"meal-{index}", "Food") for index in range(6)],
