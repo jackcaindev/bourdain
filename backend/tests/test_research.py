@@ -3,7 +3,12 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
-from app.graph.research import ResearchCategoryError, _grade_candidates, research_category
+from app.graph.research import (
+    ResearchCategoryError,
+    _extract_venues,
+    _grade_candidates,
+    research_category,
+)
 from app.models.schemas import Candidate, Category, ScoredRecommendation
 from app.services.vector_store import VectorSearchResult
 from app.services.web_search import WebSearchResult
@@ -235,7 +240,7 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         )
 
         search.assert_awaited_once_with(self.category, "Test City")
-        self.assertEqual(grade.call_count, 3)
+        self.assertEqual(grade.call_count, 2)
         self.assertEqual(len(result["scored_recommendations"]), 1)
         self.assertEqual(result["scored_recommendations"][0].source, "web_search")
 
@@ -455,3 +460,42 @@ class GradeMatchingTests(TestCase):
 
         self.assertEqual(grade.call_count, 2)
         self.assertIn("second-id", str(raised.exception.__cause__))
+
+
+class VenueExtractionTests(TestCase):
+    @patch("app.graph.research.call_forced_tool")
+    def test_caps_extracted_venues_at_ten(self, extract):
+        category = Category(name="Food", rationale="Find local institutions")
+        web_results = [
+            WebSearchResult(
+                title=f"Venue {index}",
+                url=f"https://example.com/{index}",
+                content=f"Venue {index} is a distinct, well-evidenced local place.",
+            )
+            for index in range(12)
+        ]
+        extract.return_value = {
+            "venues": [
+                {
+                    "name": f"Venue {index}",
+                    "description": "A distinct, well-evidenced local place.",
+                    "source_url": f"https://example.com/{index}",
+                }
+                for index in range(10)
+            ]
+        }
+
+        result = _extract_venues(category, web_results)
+
+        self.assertEqual(len(result), 10)
+        self.assertEqual(
+            extract.call_args.kwargs["tool_schema"]["input_schema"]["properties"][
+                "venues"
+            ]["maxItems"],
+            10,
+        )
+        self.assertIn("at most 10 venues", extract.call_args.kwargs["system_prompt"])
+        self.assertIn(
+            "prioritize the most specific, well-evidenced venues",
+            extract.call_args.kwargs["system_prompt"],
+        )

@@ -1,6 +1,6 @@
 """Deterministic itinerary assembly for selected recommendations."""
 
-from collections import Counter
+from collections import Counter, deque
 
 from app.graph.state import BriefState
 from app.models.schemas import ItineraryDay, ScoredRecommendation
@@ -46,6 +46,28 @@ def _neighborhood_focus(
     return leaders[0] if len(leaders) == 1 else None
 
 
+def _interleave_by_category(
+    recommendations: list[ScoredRecommendation],
+) -> list[ScoredRecommendation]:
+    """Round-robin categories while preserving their first-seen and item order."""
+
+    by_category: dict[str, deque[ScoredRecommendation]] = {}
+    for recommendation in recommendations:
+        by_category.setdefault(recommendation.category, deque()).append(
+            recommendation
+        )
+
+    interleaved: list[ScoredRecommendation] = []
+    while by_category:
+        for category in list(by_category):
+            category_items = by_category[category]
+            interleaved.append(category_items.popleft())
+            if not category_items:
+                del by_category[category]
+
+    return interleaved
+
+
 def assemble_itinerary(state: BriefState) -> dict[str, list[ItineraryDay]]:
     """Distribute selected recommendations into fixed daily itinerary slots."""
 
@@ -71,8 +93,12 @@ def assemble_itinerary(state: BriefState) -> dict[str, list[ItineraryDay]]:
     if not days:
         return {"itinerary": []}
 
-    meals = [item for item in selected if _is_meal_candidate(item)]
-    activities = [item for item in selected if not _is_meal_candidate(item)]
+    meals = _interleave_by_category(
+        [item for item in selected if _is_meal_candidate(item)]
+    )
+    activities = _interleave_by_category(
+        [item for item in selected if not _is_meal_candidate(item)]
+    )
 
     for index, recommendation in enumerate(meals[: day_count * len(MEAL_SLOTS)]):
         day_index = index % day_count

@@ -1,15 +1,13 @@
-import asyncio
-import threading
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
 from app.graph.scoring import (
     SCORING_MODEL,
     ScoringError,
-    _score_candidate,
+    _score_candidates,
     scoring_node,
 )
-from app.models.schemas import GradedCandidate, ScoredRecommendation
+from app.models.schemas import GradedCandidate
 
 
 def _candidate(candidate_id: str, name: str = "Cafe") -> GradedCandidate:
@@ -27,86 +25,84 @@ def _candidate(candidate_id: str, name: str = "Cafe") -> GradedCandidate:
     )
 
 
-def _score_output(score: int = 4) -> dict[str, object]:
+def _score(candidate_id: str, score: int = 4) -> dict[str, object]:
     return {
+        "candidate_id": candidate_id,
         "bourdain_score": score,
-        "scoring_rationale": "Local ownership and neighborhood history are evidenced.",
+        "scoring_rationale": (
+            "Local ownership and neighborhood history are evidenced."
+        ),
         "locally_owned_signal": "Family-owned since 1972.",
     }
 
 
-class ScoreCandidateTests(TestCase):
-    @patch("app.graph.scoring.call_forced_tool")
-    def test_scores_one_candidate_with_sonnet(self, forced_tool):
-        forced_tool.return_value = _score_output()
-
-        result = _score_candidate(_candidate("one"))
-
-        self.assertEqual(result.bourdain_score, 4)
-        self.assertEqual(result.locally_owned_signal, "Family-owned since 1972.")
-        self.assertFalse(result.passed_guardrail)
-        self.assertIsNone(result.guardrail_note)
-        self.assertEqual(forced_tool.call_args.kwargs["model"], SCORING_MODEL)
-
-    @patch("app.graph.scoring.call_forced_tool")
-    def test_validation_failure_retries_once(self, forced_tool):
-        forced_tool.side_effect = [
-            _score_output(score=6),
-            {**_score_output(), "locally_owned_signal": None},
+class ScoreCandidatesTests(TestCase):
+    def setUp(self):
+        self.candidates = [
+            _candidate("first-id", "First"),
+            _candidate("second-id", "Second"),
         ]
 
-        result = _score_candidate(_candidate("one"))
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_scores_batch_in_one_call(self, forced_tool):
+        forced_tool.return_value = {
+            "scores": [_score(candidate.id) for candidate in self.candidates]
+        }
 
-        self.assertEqual(result.bourdain_score, 4)
-        self.assertEqual(forced_tool.call_count, 2)
+        result = _score_candidates(self.candidates)
+
+        self.assertEqual([item.id for item in result], ["first-id", "second-id"])
+        self.assertTrue(all(item.bourdain_score == 4 for item in result))
+        self.assertTrue(all(not item.passed_guardrail for item in result))
+        self.assertEqual(forced_tool.call_count, 1)
+        self.assertEqual(forced_tool.call_args.kwargs["model"], SCORING_MODEL)
+        scores_schema = forced_tool.call_args.kwargs["tool_schema"]["input_schema"][
+            "properties"
+        ]["scores"]
+        self.assertEqual(scores_schema["minItems"], 2)
+        self.assertEqual(scores_schema["maxItems"], 2)
+
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_matches_reordered_scores_by_candidate_id(self, forced_tool):
+        forced_tool.return_value = {
+            "scores": [
+                _score("second-id", score=2),
+                _score("first-id", score=5),
+            ]
+        }
+
+        result = _score_candidates(self.candidates)
+
+        self.assertEqual([item.id for item in result], ["first-id", "second-id"])
+        self.assertEqual([item.bourdain_score for item in result], [5, 2])
 
     @patch("app.graph.scoring.call_forced_tool", side_effect=RuntimeError("api down"))
-    def test_exhausted_failure_raises_scoring_error(self, forced_tool):
+    def test_repeated_failure_retries_then_raises(self, forced_tool):
         with self.assertRaisesRegex(ScoringError, "after one retry"):
-            _score_candidate(_candidate("one"))
+            _score_candidates(self.candidates)
 
         self.assertEqual(forced_tool.call_count, 2)
+
+    @patch("app.graph.scoring.call_forced_tool")
+    def test_unknown_candidate_id_retries_then_raises(self, forced_tool):
+        forced_tool.return_value = {
+            "scores": [_score("first-id"), _score("unknown-id")]
+        }
+
+        with self.assertRaisesRegex(ScoringError, "after one retry") as raised:
+            _score_candidates(self.candidates)
+
+        self.assertEqual(forced_tool.call_count, 2)
+        self.assertIn("unknown candidate_id", str(raised.exception.__cause__))
 
 
 class ScoringNodeTests(IsolatedAsyncioTestCase):
-    @patch("app.graph.scoring._score_candidate")
-    async def test_drops_failures_and_preserves_successes(self, score_candidate):
-        first = _candidate("one", "First")
-        second = _candidate("two", "Second")
-        scored_first = first.model_dump() | _score_output() | {
-            "passed_guardrail": False,
-            "guardrail_note": None,
-        }
+    @patch("app.graph.scoring._score_candidates")
+    async def test_scores_category_with_one_batch(self, score_candidates):
+        candidates = [_candidate("one"), _candidate("two")]
+        score_candidates.return_value = []
 
-        def score_by_id(candidate):
-            if candidate.id == "one":
-                return ScoredRecommendation(**scored_first)
-            raise ScoringError("failed")
+        result = await scoring_node({"graded_candidates": candidates})
 
-        score_candidate.side_effect = score_by_id
-
-        with self.assertLogs("app.graph.scoring", level="WARNING") as logs:
-            result = await scoring_node({"graded_candidates": [first, second]})
-
-        self.assertEqual([item.id for item in result["scored_recommendations"]], ["one"])
-        self.assertTrue(any("scoring_candidate_dropped" in line for line in logs.output))
-
-    @patch("app.graph.scoring.call_forced_tool")
-    async def test_scores_candidates_concurrently(self, forced_tool):
-        barrier = threading.Barrier(2, timeout=1)
-
-        def wait_for_other_call(**kwargs):
-            barrier.wait()
-            return _score_output()
-
-        forced_tool.side_effect = wait_for_other_call
-
-        result = await asyncio.wait_for(
-            scoring_node(
-                {"graded_candidates": [_candidate("one"), _candidate("two")]}
-            ),
-            timeout=2,
-        )
-
-        self.assertEqual(len(result["scored_recommendations"]), 2)
-        self.assertEqual(forced_tool.call_count, 2)
+        self.assertEqual(result["scored_recommendations"], [])
+        score_candidates.assert_called_once_with(candidates)

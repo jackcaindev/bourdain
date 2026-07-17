@@ -67,6 +67,26 @@ class AssembleItineraryTests(TestCase):
             [["activity-0", "activity-2"], ["activity-1", "activity-3"]],
         )
 
+    def test_interleaves_meal_categories_to_avoid_same_day_monoculture(self):
+        recommendations = [
+            _recommendation("food-0", "Food"),
+            _recommendation("restaurant-0", "Restaurant"),
+            _recommendation("food-1", "Food"),
+            _recommendation("cafe-0", "Cafe"),
+            _recommendation("food-2", "Food"),
+            _recommendation("restaurant-1", "Restaurant"),
+        ]
+
+        itinerary = _assemble(recommendations, day_count=2)
+
+        for day in itinerary:
+            meal_categories = {
+                day.breakfast.category,
+                day.lunch.category,
+                day.dinner.category,
+            }
+            self.assertGreater(len(meal_categories), 1)
+
     def test_caps_activities_at_two_per_day_and_drops_overflow(self):
         recommendations = [
             _recommendation(f"activity-{index}", "Culture") for index in range(7)

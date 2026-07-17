@@ -34,7 +34,7 @@ from app.services.web_search import WebSearchResult
 
 logger = logging.getLogger(__name__)
 
-RESEARCH_MODEL = "claude-sonnet-4-6"
+RESEARCH_MODEL = "claude-haiku-4-5"
 
 
 class ResearchCategoryError(RuntimeError):
@@ -108,6 +108,7 @@ def _venue_extraction_tool_schema() -> dict[str, Any]:
             "properties": {
                 "venues": {
                     "type": "array",
+                    "maxItems": 10,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -139,9 +140,12 @@ def _extract_venues(
             "supplied web results. Skip generic mentions such as neighborhoods, "
             "the food scene, or a category in general when they are not specific "
             "places. Merge duplicate mentions of the same venue across results "
-            "into one entry. For each venue, choose the single most relevant "
-            "source_url from only the URLs present in the supplied results. Use "
-            "the tool once."
+            "into one entry. Keep each venue's description to one or two sentences "
+            "of specific, authentic detail; this is a candidate summary, not a full "
+            "write-up. Return at most 10 venues. If more than 10 are mentioned, "
+            "prioritize the most specific, well-evidenced venues across the supplied "
+            "results. For each venue, choose the single most relevant source_url from "
+            "only the URLs present in the supplied results. Use the tool once."
         ),
         user_prompt=(
             f"Category: {category.name}\nRationale: {category.rationale}\n\n"
@@ -149,7 +153,7 @@ def _extract_venues(
         ),
         tool_schema=_venue_extraction_tool_schema(),
         model=RESEARCH_MODEL,
-        max_tokens=4000,
+        max_tokens=8000,
     )
     return _EXTRACTED_VENUE_LIST_ADAPTER.validate_python(tool_input["venues"])
 
@@ -305,15 +309,25 @@ async def research_category(
         extra={"category": category.name, "candidate_count": len(candidates)},
     )
 
-    graded = await asyncio.to_thread(_grade_candidates, category, candidates)
-    logger.info(
-        "research_grading_complete",
-        extra={
-            "category": category.name,
-            "candidate_count": len(graded),
-            "fallback_count": sum(item.needs_fallback for item in graded),
-        },
-    )
+    if candidates:
+        graded = await asyncio.to_thread(_grade_candidates, category, candidates)
+        logger.info(
+            "research_grading_complete",
+            extra={
+                "category": category.name,
+                "candidate_count": len(graded),
+                "fallback_count": sum(item.needs_fallback for item in graded),
+            },
+        )
+    else:
+        graded = []
+        logger.info(
+            "research_grading_skipped",
+            extra={
+                "category": category.name,
+                "reason": "no_vector_candidates",
+            },
+        )
 
     fallback_triggered = not candidates or any(
         item.needs_fallback for item in graded

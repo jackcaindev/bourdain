@@ -13,7 +13,7 @@ from app.services.llm import call_forced_tool
 
 logger = logging.getLogger(__name__)
 
-GUARDRAIL_MODEL = "claude-sonnet-4-6"
+GUARDRAIL_MODEL = "claude-haiku-4-5"
 MIN_RAW_SIGNAL_LENGTH = 20
 
 
