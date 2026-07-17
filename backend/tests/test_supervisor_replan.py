@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from app.graph.supervisor_replan import (
     SUPERVISOR_REPLAN_MODEL,
+    _request_replacements,
     supervisor_replan_check,
 )
 from app.models.schemas import Category, ScoredRecommendation
@@ -28,14 +29,20 @@ def _candidate(candidate_id: str, category: str) -> ScoredRecommendation:
     )
 
 
-def _state(*, iteration: int = 0):
+def _state(
+    *, iteration: int = 0, selected_categories: list[Category] | None = None
+):
+    categories = [
+        Category(name="Food", rationale="Local restaurants"),
+        Category(name="Beaches", rationale="Coastal experiences"),
+    ]
     return {
         "destination": "Porto",
         "trip_length_days": 3,
-        "categories": [
-            Category(name="Food", rationale="Local restaurants"),
-            Category(name="Beaches", rationale="Coastal experiences"),
-        ],
+        "categories": categories,
+        "selected_categories": (
+            categories[:1] if selected_categories is None else selected_categories
+        ),
         "scored_recommendations": [_candidate("food-one", "Food")],
         "research_iteration": iteration,
     }
@@ -59,10 +66,8 @@ class SupervisorReplanTests(TestCase):
             result, {"replan_categories": [], "research_iteration": 1}
         )
         self.assertEqual(forced_tool.call_args.kwargs["model"], SUPERVISOR_REPLAN_MODEL)
-        self.assertIn('"name": "Beaches"', forced_tool.call_args.kwargs["user_prompt"])
-        self.assertIn(
-            '"scored_recommendations": []',
-            forced_tool.call_args.kwargs["user_prompt"],
+        self.assertNotIn(
+            '"name": "Beaches"', forced_tool.call_args.kwargs["user_prompt"]
         )
 
     @patch("app.graph.supervisor_replan.call_forced_tool")
@@ -79,10 +84,13 @@ class SupervisorReplanTests(TestCase):
             ]
         }
 
-        result = supervisor_replan_check(_state())
+        state = _state()
+        result = supervisor_replan_check(
+            _state(selected_categories=state["categories"])
+        )
 
         self.assertEqual(
-            [category.name for category in result["categories"]],
+            [category.name for category in result["selected_categories"]],
             ["Food", "Port wine culture"],
         )
         self.assertEqual(
@@ -90,6 +98,31 @@ class SupervisorReplanTests(TestCase):
             ["Port wine culture"],
         )
         self.assertEqual(result["research_iteration"], 1)
+
+    @patch("app.graph.supervisor_replan.call_forced_tool")
+    def test_unselected_category_is_not_prompted_and_cannot_be_replaced(
+        self, forced_tool
+    ):
+        forced_tool.return_value = {
+            "replacements": [
+                {
+                    "category_name": "Beaches",
+                    "replacement": {
+                        "name": "Port wine culture",
+                        "rationale": "Cellars and taverns better fit Porto.",
+                    },
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(
+            ValueError, "re-plan returned unknown category name\\(s\\): Beaches"
+        ):
+            _request_replacements(_state())
+
+        self.assertNotIn(
+            '"name": "Beaches"', forced_tool.call_args.kwargs["user_prompt"]
+        )
 
     @patch("app.graph.supervisor_replan.call_forced_tool")
     def test_invalid_output_retries_once(self, forced_tool):

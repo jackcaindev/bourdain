@@ -68,7 +68,7 @@ def _replan_tool_schema() -> dict[str, Any]:
 
 def _grouped_candidate_payload(state: BriefState) -> list[dict[str, Any]]:
     grouped: dict[str, list[ScoredRecommendation]] = {
-        category.name: [] for category in state["categories"]
+        category.name: [] for category in state["selected_categories"] or []
     }
     for recommendation in state["scored_recommendations"]:
         if recommendation.category in grouped:
@@ -82,7 +82,7 @@ def _grouped_candidate_payload(state: BriefState) -> list[dict[str, Any]]:
                 for recommendation in grouped[category.name]
             ],
         }
-        for category in state["categories"]
+        for category in state["selected_categories"] or []
     ]
 
 
@@ -139,7 +139,7 @@ def _request_replacements(state: BriefState) -> list[_CategoryReplacement]:
     replacements = _REPLACEMENTS_ADAPTER.validate_python(
         tool_input["replacements"]
     )
-    _validate_replacements(replacements, state["categories"])
+    _validate_replacements(replacements, state["selected_categories"] or [])
     return replacements
 
 
@@ -183,12 +183,12 @@ def supervisor_replan_check(state: BriefState) -> dict[str, Any]:
     replaced_names = {replacement.category_name for replacement in replacements}
     retained = [
         category
-        for category in state["categories"]
+        for category in state["selected_categories"] or []
         if category.name not in replaced_names
     ]
     new_categories = [replacement.replacement for replacement in replacements]
     return {
-        "categories": retained + new_categories,
+        "selected_categories": retained + new_categories,
         "replan_categories": new_categories,
         "research_iteration": 1,
     }
