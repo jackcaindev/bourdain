@@ -1,0 +1,68 @@
+"""Persistence operations for research categories."""
+
+from __future__ import annotations
+
+from typing import Literal
+from uuid import UUID
+
+import asyncpg
+
+from app.models.domain import CategoryRecord
+from app.services.vector_store import VectorStoreError, get_shared_pool
+
+
+class CategoryError(RuntimeError):
+    """Raised when a category persistence operation fails."""
+
+
+async def create_category(
+    *,
+    trip_id: UUID,
+    name: str,
+    type: Literal["food", "activity"],
+    estimated_duration_minutes: int,
+    neighborhood_scope: str,
+    source_drivers: list[str] | None = None,
+    status: Literal["candidate", "selected", "stale_replaced"] = "candidate",
+    day_number: int | None = None,
+    time_block: str | None = None,
+) -> CategoryRecord:
+    try:
+        pool = await get_shared_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                INSERT INTO categories (
+                    trip_id, name, type, source_drivers,
+                    estimated_duration_minutes, neighborhood_scope,
+                    status, day_number, time_block
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING *
+                """,
+                trip_id,
+                name,
+                type,
+                source_drivers or [],
+                estimated_duration_minutes,
+                neighborhood_scope,
+                status,
+                day_number,
+                time_block,
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
+        raise CategoryError("Failed to create category.") from exc
+    return CategoryRecord.model_validate(dict(row))
+
+
+async def get_categories_by_trip_id(trip_id: UUID) -> list[CategoryRecord]:
+    try:
+        pool = await get_shared_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT * FROM categories WHERE trip_id = $1 ORDER BY created_at, id",
+                trip_id,
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
+        raise CategoryError("Failed to read categories for trip.") from exc
+    return [CategoryRecord.model_validate(dict(row)) for row in rows]
