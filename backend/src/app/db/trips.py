@@ -11,6 +11,11 @@ from app.models.domain import TripRecord
 from app.services.vector_store import VectorStoreError, get_shared_pool
 
 
+TripStatus = Literal[
+    "gathering_categories", "researching", "reviewing", "confirmed"
+]
+
+
 class TripError(RuntimeError):
     """Raised when a trip persistence operation fails."""
 
@@ -20,14 +25,14 @@ async def create_trip(
     destination_raw: str,
     destination_place_id: str,
     destination_formatted: str,
+    destination_lat: float,
+    destination_lng: float,
     trip_length_days: int,
     session_id: str,
     activity_drivers: list[str] | None = None,
     food_selections: list[str] | None = None,
     time_blocks: list[str] | None = None,
-    status: Literal[
-        "gathering_categories", "researching", "reviewing", "confirmed"
-    ] = "gathering_categories",
+    status: TripStatus = "gathering_categories",
 ) -> TripRecord:
     try:
         pool = await get_shared_pool()
@@ -36,15 +41,17 @@ async def create_trip(
                 """
                 INSERT INTO trips (
                     destination_raw, destination_place_id, destination_formatted,
-                    trip_length_days, activity_drivers, food_selections,
-                    time_blocks, status, session_id
+                    destination_lat, destination_lng, trip_length_days,
+                    activity_drivers, food_selections, time_blocks, status, session_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 RETURNING *
                 """,
                 destination_raw,
                 destination_place_id,
                 destination_formatted,
+                destination_lat,
+                destination_lng,
                 trip_length_days,
                 activity_drivers or [],
                 food_selections or [],
@@ -77,3 +84,24 @@ async def get_trip_by_session_id(session_id: str) -> TripRecord | None:
     except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
         raise TripError("Failed to read trip by session id.") from exc
     return TripRecord.model_validate(dict(row)) if row is not None else None
+
+
+async def update_trip_status(trip_id: UUID, status: TripStatus) -> TripRecord:
+    try:
+        pool = await get_shared_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                UPDATE trips
+                SET status = $2, updated_at = now()
+                WHERE id = $1
+                RETURNING *
+                """,
+                trip_id,
+                status,
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
+        raise TripError("Failed to update trip status.") from exc
+    if row is None:
+        raise TripError(f"Trip {trip_id} was not found.")
+    return TripRecord.model_validate(dict(row))

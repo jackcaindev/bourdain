@@ -1,12 +1,27 @@
 """Pydantic data contracts for The Bourdain Brief travel research pipeline."""
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
+ActivityDriver = Literal[
+    "Nightlife",
+    "Arts & Music",
+    "Culture & History",
+    "Outdoors & Nature",
+    "Shopping & Markets",
+    "Local Life & Offbeat",
+]
+FoodSelection = Literal["Breakfast", "Coffee", "Lunch", "Tea", "Dinner"]
+TimeBlock = Literal["morning", "afternoon", "night"]
+
+
 class Category(BaseModel):
-    """A supervisor-selected research lane for the destination brief."""
+    """A persisted research lane generated from one checked trip driver."""
+
+    id: UUID | None = None
 
     name: str = Field(
         description=(
@@ -15,10 +30,23 @@ class Category(BaseModel):
         )
     )
     rationale: str = Field(
+        default="",
         description=(
             "Captures the supervisor's reasoning so the category choice can be "
             "audited and explained for this specific destination."
         )
+    )
+    type: Literal["food", "activity"] | None = None
+    source_drivers: list[str] = Field(default_factory=list)
+    estimated_duration_minutes: int | None = Field(default=None, gt=0)
+    eligible_blocks: list[TimeBlock] = Field(default_factory=list)
+    status: Literal["candidate", "selected", "stale_replaced"] = "candidate"
+    neighborhood_scope: str = Field(
+        default="",
+        description=(
+            "Narrows venue research to a destination neighborhood when one has "
+            "already been selected; older category producers may leave it empty."
+        ),
     )
 
 
@@ -51,7 +79,11 @@ class Candidate(BaseModel):
     )
     lat: float | None = None
     lng: float | None = None
-    source: Literal["vector_store", "web_search", "cache"] = Field(
+    internal_place_id: UUID | None = None
+    place_id: str | None = None
+    formatted_address: str | None = None
+    google_types: list[str] = Field(default_factory=list)
+    source: Literal["vector_store", "web_search"] = Field(
         description=(
             "Records the discovery channel so the app can distinguish local "
             "retrieval results from fallback web search results."
@@ -138,45 +170,16 @@ class ScoredRecommendation(GradedCandidate):
     )
 
 
-class ItineraryDay(BaseModel):
-    """One assembled day of the brief's final itinerary."""
+class ItinerarySlot(BaseModel):
+    time_block: TimeBlock
+    activity: ScoredRecommendation | None = None
+    meals: list[ScoredRecommendation] = Field(default_factory=list)
 
-    day_number: int = Field(
-        description=(
-            "Orders the day in the trip so itinerary assembly can produce a "
-            "clear sequence from arrival through departure."
-        )
-    )
-    neighborhood_focus: str | None = Field(
-        description=(
-            "Optionally groups the day's choices around an area to reduce "
-            "unnecessary travel and give the day a coherent shape."
-        )
-    )
-    breakfast: ScoredRecommendation | None = Field(
-        description=(
-            "Holds an optional morning food recommendation so the itinerary can "
-            "include breakfast only when a strong fit exists."
-        )
-    )
-    lunch: ScoredRecommendation | None = Field(
-        description=(
-            "Holds an optional midday food recommendation so the itinerary can "
-            "anchor the day without forcing a weak choice."
-        )
-    )
-    dinner: ScoredRecommendation | None = Field(
-        description=(
-            "Holds an optional evening food recommendation because dinner is a "
-            "primary editorial moment in the brief."
-        )
-    )
-    activities: list[ScoredRecommendation] = Field(
-        description=(
-            "Carries non-meal recommendations for the day while leaving the "
-            "1-2 item maximum to the later assembly logic."
-        )
-    )
+
+class ItineraryDay(BaseModel):
+    day_number: int
+    slots: list[ItinerarySlot]
+    neighborhood_focus: str | None = None
 
 
 class CandidatePayload(BaseModel):
@@ -267,11 +270,6 @@ class ItineraryPayload(BaseModel):
     )
 
 
-class CacheHitPayload(BaseModel):
-    category: str
-    recommendations_count: int
-
-
 class SSEEvent(BaseModel):
     """A typed server-sent event envelope for UI progress streaming."""
 
@@ -307,7 +305,6 @@ class SSEEvent(BaseModel):
         | CategoryListPayload
         | HitlPayload
         | ItineraryPayload
-        | CacheHitPayload
         | None
     ) = Field(
         default=None,

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr = Field(
         description="Tavily API key used for web research."
     )
+    google_places_api_key: SecretStr = Field(
+        description="Google Places API key used for city and venue resolution."
+    )
     database_url: SecretStr = Field(
         description="Postgres connection string for application storage."
     )
@@ -42,6 +45,7 @@ _ENV_VAR_NAMES = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
     "tavily_api_key": "TAVILY_API_KEY",
+    "google_places_api_key": "GOOGLE_PLACES_API_KEY",
     "database_url": "DATABASE_URL",
     "anthropic_timeout_seconds": "ANTHROPIC_TIMEOUT_SECONDS",
 }

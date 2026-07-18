@@ -1,4 +1,6 @@
+import asyncio
 import json
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -10,6 +12,7 @@ from app.graph.research import (
     research_category,
 )
 from app.models.schemas import Candidate, Category, ScoredRecommendation
+from app.services.places import CityResolution, PlaceMatch
 from app.services.vector_store import VectorSearchResult
 from app.services.web_search import WebSearchResult
 
@@ -41,10 +44,10 @@ def _tool_output(candidate_ids, *, fallback=False):
 
 
 def _scored_recommendation(
-    recommendation_id: str = "cached-id",
+    recommendation_id: str = "recommendation-id",
     *,
-    name: str = "Cached Cafe",
-    source: str = "cache",
+    name: str = "Local Cafe",
+    source: str = "vector_store",
     relevance_score: float = 0.9,
     bourdain_score: int = 4,
     passed_guardrail: bool = True,
@@ -53,11 +56,15 @@ def _scored_recommendation(
         id=recommendation_id,
         name=name,
         category="Late-night food",
-        description="A cached neighborhood spot.",
+        description="A neighborhood spot.",
+        internal_place_id=uuid4(),
+        place_id=f"google-{recommendation_id}",
+        formatted_address="1 Test Street, Test City",
+        google_types=["restaurant"],
         source=source,
-        raw_signal="Cached local evidence.",
+        raw_signal="Specific local evidence.",
         relevance_score=relevance_score,
-        authenticity_signal="Cached authenticity signal.",
+        authenticity_signal="Local authenticity signal.",
         confidence="high",
         needs_fallback=False,
         bourdain_score=bourdain_score,
@@ -86,24 +93,21 @@ def _mock_guardrail_node(state):
 
 class ResearchCategoryTests(IsolatedAsyncioTestCase):
     def setUp(self):
-        self.category = Category(name="Late-night food", rationale="Find worker-focused spots")
+        self.trip_id = uuid4()
+        self.category = Category(
+            id=uuid4(),
+            name="Late-night food",
+            rationale="Find worker-focused spots",
+            neighborhood_scope="Old Town",
+        )
         self.pool = MagicMock()
         self.pool.close = AsyncMock()
 
-        cache_get = patch(
-            "app.graph.research.get_cached_recommendations",
-            new_callable=AsyncMock,
-            return_value=None,
-        )
-        cache_write = patch(
-            "app.graph.research.write_category_cache",
+        verify = patch(
+            "app.graph.research.verify_venue",
             new_callable=AsyncMock,
         )
-        geocode = patch(
-            "app.graph.research.geocode_venue",
-            new_callable=AsyncMock,
-            return_value=None,
-        )
+        resolve = patch("app.graph.research.resolve_city", new_callable=AsyncMock)
         scoring = patch(
             "app.graph.research.scoring_node",
             new_callable=AsyncMock,
@@ -117,19 +121,83 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             "app.graph.research.insert_candidate",
             new_callable=AsyncMock,
         )
+        get_place = patch(
+            "app.graph.research.get_or_create_place",
+            new_callable=AsyncMock,
+        )
+        create_run = patch(
+            "app.graph.research.create_research_run",
+            new_callable=AsyncMock,
+        )
+        complete_run = patch(
+            "app.graph.research.complete_research_run",
+            new_callable=AsyncMock,
+        )
+        create_evidence = patch(
+            "app.graph.research.create_evidence",
+            new_callable=AsyncMock,
+        )
+        create_recommendation = patch(
+            "app.graph.research.create_recommendation",
+            new_callable=AsyncMock,
+        )
 
-        self.get_cached_recommendations = cache_get.start()
-        self.write_category_cache = cache_write.start()
-        self.geocode_venue = geocode.start()
+        self.verify_venue = verify.start()
+        self.resolve_city = resolve.start()
+        self.verify_venue.side_effect = lambda name, **_kwargs: PlaceMatch(
+            google_place_id=f"place-{name}",
+            name=name,
+            formatted_address=f"{name}, Test City",
+            lat=10.0,
+            lng=20.0,
+            google_types=["restaurant"],
+        )
+        self.resolve_city.return_value = CityResolution(
+            status="resolved",
+            match=PlaceMatch(
+                google_place_id="test-city",
+                name="Test City",
+                formatted_address="Test City",
+                lat=10.0,
+                lng=20.0,
+                google_types=["locality"],
+            ),
+        )
         self.scoring_node = scoring.start()
         self.guardrail_node = guardrail.start()
         self.insert_candidate = vector_insert.start()
-        self.addCleanup(cache_get.stop)
-        self.addCleanup(cache_write.stop)
-        self.addCleanup(geocode.stop)
+        self.get_or_create_place = get_place.start()
+        self.create_research_run = create_run.start()
+        self.complete_research_run = complete_run.start()
+        self.create_evidence = create_evidence.start()
+        self.create_recommendation = create_recommendation.start()
+        self.place_ids_by_google: dict[str, UUID] = {}
+
+        def persisted_place(**kwargs):
+            place_id = self.place_ids_by_google.setdefault(
+                kwargs["google_place_id"], uuid4()
+            )
+            return SimpleNamespace(id=place_id)
+
+        self.get_or_create_place.side_effect = persisted_place
+        self.created_run_ids: list[UUID] = []
+
+        def persisted_run(**_kwargs):
+            run_id = uuid4()
+            self.created_run_ids.append(run_id)
+            return SimpleNamespace(id=run_id)
+
+        self.create_research_run.side_effect = persisted_run
+        self.addCleanup(verify.stop)
+        self.addCleanup(resolve.stop)
         self.addCleanup(scoring.stop)
         self.addCleanup(guardrail.stop)
         self.addCleanup(vector_insert.stop)
+        self.addCleanup(get_place.stop)
+        self.addCleanup(create_run.stop)
+        self.addCleanup(complete_run.stop)
+        self.addCleanup(create_evidence.stop)
+        self.addCleanup(create_recommendation.stop)
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
@@ -145,7 +213,13 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         query.return_value = [vector_result]
         grade.return_value = _tool_output([1])
 
-        result = await research_category(self.category, city_slug="test-city", city_name="Test City")
+        result = await research_category(
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
+        )
 
         embed.assert_called_once_with(["Late-night food: Find worker-focused spots"])
         query.assert_awaited_once_with(
@@ -157,13 +231,189 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         self.assertEqual(grade.call_count, 1)
         search.assert_not_called()
         self.assertEqual(result["scored_recommendations"][0].source, "vector_store")
+        self.assertEqual(result["scored_recommendations"][0].place_id, "place-Cafe")
+        self.assertEqual(
+            result["scored_recommendations"][0].internal_place_id,
+            self.place_ids_by_google["place-Cafe"],
+        )
+        self.get_or_create_place.assert_awaited_once_with(
+            google_place_id="place-Cafe",
+            name="Cafe",
+            formatted_address="Cafe, Test City",
+            lat=10.0,
+            lng=20.0,
+            google_types=["restaurant"],
+        )
+        self.create_research_run.assert_awaited_once_with(
+            trip_id=self.trip_id,
+            category_id=self.category.id,
+            trigger_reason="initial",
+        )
+        self.complete_research_run.assert_awaited_once_with(
+            self.created_run_ids[0]
+        )
+        self.assertEqual(self.create_recommendation.await_count, 1)
+        self.assertEqual(
+            self.create_recommendation.await_args.kwargs["research_run_id"],
+            self.created_run_ids[0],
+        )
+        self.assertTrue(self.verify_venue.await_args_list)
+        for verification_call in self.verify_venue.await_args_list:
+            self.assertEqual(
+                verification_call.kwargs["location_bias"], (10.0, 20.0)
+            )
+            self.assertEqual(
+                verification_call.kwargs["neighborhood_scope"], "Old Town"
+            )
         self.pool.close.assert_not_awaited()
+
+    @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_multi_category_research_reuses_supplied_destination_coordinates(
+        self, embed, get_shared_pool, query, grade, search
+    ):
+        embed.return_value = [[0.0] * 1536]
+        get_shared_pool.return_value = self.pool
+        query.side_effect = [[_result("Cafe")], [_result("Market")]]
+        grade.return_value = _tool_output([1])
+        categories = [
+            self.category,
+            Category(
+                id=uuid4(),
+                name="Neighborhood markets",
+                rationale="Find everyday local markets",
+                neighborhood_scope="Old Town",
+            ),
+        ]
+
+        await asyncio.gather(
+            *(
+                research_category(
+                    category,
+                    city_slug="test-city",
+                    city_name="Test City",
+                    trip_id=self.trip_id,
+                    trigger_reason="initial",
+                    location_bias=(10.0, 20.0),
+                )
+                for category in categories
+            )
+        )
+
+        self.assertLessEqual(self.resolve_city.await_count, 1)
+        self.assertEqual(self.verify_venue.await_count, 2)
+        search.assert_not_awaited()
+
+    @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_unverified_candidate_is_dropped_before_grading(
+        self, embed, get_shared_pool, query, grade, search
+    ):
+        embed.return_value = [[0.0] * 1536]
+        get_shared_pool.return_value = self.pool
+        query.return_value = [_result("Missing Cafe"), _result("Real Diner")]
+        self.verify_venue.side_effect = [
+            None,
+            PlaceMatch(
+                google_place_id="real-diner",
+                name="Real Diner",
+                formatted_address="Real Diner, Old Town, Test City",
+                lat=10.1,
+                lng=20.1,
+                google_types=["restaurant"],
+            ),
+        ]
+        grade.return_value = _tool_output([1])
+
+        result = await research_category(
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
+        )
+
+        grading_payload = json.loads(
+            grade.call_args.kwargs["user_prompt"].split("Candidates:\n", 1)[1]
+        )
+        self.assertEqual([item["name"] for item in grading_payload], ["Real Diner"])
+        self.assertEqual(
+            [item.name for item in result["scored_recommendations"]], ["Real Diner"]
+        )
+        search.assert_not_awaited()
+
+    @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_all_unverified_vector_candidates_trigger_existing_web_fallback(
+        self, embed, get_shared_pool, query, tool_call, search
+    ):
+        embed.return_value = [[0.0] * 1536]
+        get_shared_pool.return_value = self.pool
+        query.return_value = [_result("Imaginary Cafe")]
+        verified_web_match = PlaceMatch(
+            google_place_id="night-market",
+            name="Night Market",
+            formatted_address="Night Market, Old Town, Test City",
+            lat=10.2,
+            lng=20.2,
+            google_types=["market"],
+        )
+        self.verify_venue.side_effect = [None, verified_web_match]
+        search.return_value = [
+            WebSearchResult(
+                title="Night Market",
+                url="https://web.example/night-market",
+                content="A real market serving late-shift workers.",
+            )
+        ]
+
+        def tool_output(**kwargs):
+            if kwargs["tool_schema"]["name"] == "extract_venues":
+                return {
+                    "venues": [
+                        {
+                            "name": "Night Market",
+                            "description": "A real market serving late-shift workers.",
+                            "source_url": "https://web.example/night-market",
+                        }
+                    ]
+                }
+            return _tool_output([1])
+
+        tool_call.side_effect = tool_output
+
+        result = await research_category(
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
+        )
+
+        search.assert_awaited_once_with(self.category, "Test City")
+        self.assertEqual(tool_call.call_count, 2)
+        self.assertEqual(
+            [item.name for item in result["scored_recommendations"]], ["Night Market"]
+        )
+        self.assertEqual(
+            [call.kwargs["location_bias"] for call in self.verify_venue.await_args_list],
+            [(10.0, 20.0), (10.0, 20.0)],
+        )
 
     @patch("app.graph.research.call_forced_tool")
     @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
     @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
     @patch("app.graph.research.create_embeddings")
-    async def test_filters_and_sorts_before_geocoding_cache_and_return(
+    async def test_filters_and_sorts_before_return(
         self, embed, get_shared_pool, query, grade
     ):
         embed.return_value = [[0.0] * 1536]
@@ -211,7 +461,11 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         }
 
         result = await research_category(
-            self.category, city_slug="test-city", city_name="Test City"
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
         )
 
         expected = [
@@ -220,13 +474,15 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             score_three,
         ]
         self.assertEqual(result["scored_recommendations"], expected)
-        self.assertEqual(
-            [call.args[0] for call in self.geocode_venue.await_args_list],
-            [item.name for item in expected],
+        self.assertNotIn(failed, result["scored_recommendations"])
+        failed_persistence = next(
+            call
+            for call in self.create_recommendation.await_args_list
+            if call.kwargs["place_id"] == failed.internal_place_id
         )
-        self.write_category_cache.assert_awaited_once_with(
-            "test-city", self.category.name, expected
-        )
+        self.assertFalse(failed_persistence.kwargs["passed_guardrail"])
+        self.assertEqual(self.create_recommendation.await_count, 4)
+        self.assertEqual(self.create_evidence.await_count, 8)
         self.insert_candidate.assert_not_awaited()
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
@@ -267,12 +523,84 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             WebSearchResult(title="Stall", url="https://web.example", content="Night stall")
         ]
 
-        result = await research_category(self.category, city_slug="test-city", city_name="Test City")
+        result = await research_category(
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
+        )
 
         search.assert_awaited_once_with(self.category, "Test City")
         self.assertEqual(grade.call_count, 3)
         self.assertEqual(len(result["scored_recommendations"]), 3)
         self.assertEqual(result["scored_recommendations"][-1].source, "web_search")
+        self.assertEqual(self.create_research_run.await_count, 2)
+        self.assertEqual(
+            [call.kwargs["trigger_reason"] for call in self.create_research_run.await_args_list],
+            ["initial", "crag_fallback"],
+        )
+        self.assertEqual(
+            [call.args[0] for call in self.complete_research_run.await_args_list],
+            self.created_run_ids,
+        )
+        self.assertTrue(self.create_recommendation.await_args_list)
+        self.assertTrue(
+            all(
+                call.kwargs["research_run_id"] == self.created_run_ids[1]
+                for call in self.create_recommendation.await_args_list
+            )
+        )
+
+    async def test_unpersisted_category_fails_before_research_run_creation(self):
+        category = self.category.model_copy(update={"id": None})
+
+        with self.assertRaisesRegex(
+            ResearchCategoryError, "must be persisted before research"
+        ):
+            await research_category(
+                category,
+                city_slug="test-city",
+                city_name="Test City",
+                trip_id=self.trip_id,
+                trigger_reason="initial",
+            )
+
+        self.create_research_run.assert_not_awaited()
+
+    @patch("app.graph.research.call_forced_tool")
+    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
+    @patch("app.graph.research.get_shared_pool", new_callable=AsyncMock)
+    @patch("app.graph.research.create_embeddings")
+    async def test_missing_internal_place_id_warns_and_skips_persistence(
+        self, embed, get_shared_pool, query, grade
+    ):
+        embed.return_value = [[0.0] * 1536]
+        get_shared_pool.return_value = self.pool
+        query.return_value = [_result()]
+        grade.return_value = _tool_output([1])
+        missing_place = _scored_recommendation().model_copy(
+            update={"internal_place_id": None}
+        )
+        self.guardrail_node.side_effect = lambda _state: {
+            "scored_recommendations": [missing_place]
+        }
+
+        with self.assertLogs("app.graph.research", level="WARNING") as logs:
+            result = await research_category(
+                self.category,
+                city_slug="test-city",
+                city_name="Test City",
+                trip_id=self.trip_id,
+                trigger_reason="initial",
+            )
+
+        self.assertEqual(result["scored_recommendations"], [missing_place])
+        self.assertTrue(
+            any("research_recommendation_persistence_skipped" in line for line in logs.output)
+        )
+        self.create_evidence.assert_not_awaited()
+        self.create_recommendation.assert_not_awaited()
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")
@@ -313,7 +641,11 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         ]
 
         result = await research_category(
-            self.category, city_slug="test-city", city_name="Test City"
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
         )
 
         search.assert_awaited_once_with(self.category, "Test City")
@@ -371,7 +703,11 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         tool_call.side_effect = tool_output
 
         result = await research_category(
-            self.category, city_slug="test-city", city_name="Test City"
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
         )
 
         recommendations = result["scored_recommendations"]
@@ -410,9 +746,6 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         vector_store = _scored_recommendation(
             str(uuid4()), name="Vector Result", source="vector_store"
         )
-        cache = _scored_recommendation(
-            str(uuid4()), name="Cache Result", source="cache"
-        )
         failed_web = _scored_recommendation(
             str(uuid4()), name="Failed Web", source="web_search"
         ).model_copy(update={"passed_guardrail": False})
@@ -420,13 +753,16 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             "scored_recommendations": [
                 passed_web,
                 vector_store,
-                cache,
                 failed_web,
             ]
         }
 
         await research_category(
-            self.category, city_slug="test-city", city_name="Test City"
+            self.category,
+            city_slug="test-city",
+            city_name="Test City",
+            trip_id=self.trip_id,
+            trigger_reason="initial",
         )
 
         self.assertEqual(embed.call_count, 2)
@@ -454,7 +790,13 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         query.return_value = [_result()]
 
         with self.assertRaisesRegex(ResearchCategoryError, "after one retry"):
-            await research_category(self.category, city_slug="test-city", city_name="Test City")
+            await research_category(
+                self.category,
+                city_slug="test-city",
+                city_name="Test City",
+                trip_id=self.trip_id,
+                trigger_reason="initial",
+            )
 
         self.assertEqual(grade.call_count, 2)
         self.pool.close.assert_not_awaited()
@@ -462,28 +804,13 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
     @patch("app.graph.research.create_embeddings", side_effect=RuntimeError("api down"))
     async def test_embedding_failure_is_visible(self, embed):
         with self.assertRaisesRegex(ResearchCategoryError, "Embedding failed"):
-            await research_category(self.category, city_slug="test-city", city_name="Test City")
-
-    @patch("app.graph.research.call_forced_tool")
-    @patch("app.graph.research.query_nearest_neighbors", new_callable=AsyncMock)
-    @patch("app.graph.research.create_embeddings")
-    async def test_cache_hit_returns_early(self, embed, query, grade):
-        cached = [_scored_recommendation(source="web_search")]
-        self.get_cached_recommendations.return_value = cached
-
-        result = await research_category(
-            self.category, city_slug="test-city", city_name="Test City"
-        )
-
-        self.assertEqual(result["scored_recommendations"][0].source, "cache")
-        self.assertEqual(cached[0].source, "web_search")
-        embed.assert_not_called()
-        query.assert_not_called()
-        grade.assert_not_called()
-        self.scoring_node.assert_not_called()
-        self.write_category_cache.assert_not_awaited()
-        self.geocode_venue.assert_not_awaited()
-
+            await research_category(
+                self.category,
+                city_slug="test-city",
+                city_name="Test City",
+                trip_id=self.trip_id,
+                trigger_reason="initial",
+            )
 
 class GradeMatchingTests(TestCase):
     def setUp(self):

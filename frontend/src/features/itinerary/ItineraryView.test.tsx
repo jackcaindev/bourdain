@@ -26,7 +26,7 @@ describe('ItineraryView', () => {
     useBriefStore.getState().setItineraryDays([itineraryDay])
   })
 
-  it('renders meal slots before activities and links available sources', () => {
+  it('renders block activities and meals and links available sources', () => {
     const { container } = render(
       <MemoryRouter>
         <ItineraryView />
@@ -34,8 +34,7 @@ describe('ItineraryView', () => {
     )
 
     const text = container.textContent ?? ''
-    expect(text.indexOf('Breakfast')).toBeLessThan(text.indexOf('Activity 1'))
-    expect(screen.queryByText('Lunch')).not.toBeInTheDocument()
+    expect(text.indexOf('Morning Activity')).toBeLessThan(text.indexOf('Morning Meal'))
     expect(screen.getAllByRole('link', { name: 'VIEW SOURCE ↗' })[0]).toHaveAttribute(
       'href',
       'https://example.com/cafe',
@@ -45,8 +44,7 @@ describe('ItineraryView', () => {
   it('renders a marker for a recommendation with coordinates', () => {
     useBriefStore.getState().setItineraryDays([{
       ...itineraryDay,
-      breakfast: recommendation,
-      activities: [],
+      slots: [{ time_block: 'morning', activity: null, meals: [recommendation] }],
     }])
 
     render(
@@ -63,8 +61,11 @@ describe('ItineraryView', () => {
   it('renders no map when no recommendation has coordinates', () => {
     useBriefStore.getState().setItineraryDays([{
       ...itineraryDay,
-      breakfast: { ...recommendation, lat: null, lng: null },
-      activities: [],
+      slots: [{
+        time_block: 'morning',
+        activity: null,
+        meals: [{ ...recommendation, lat: null, lng: null }],
+      }],
     }])
 
     render(

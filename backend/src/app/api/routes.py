@@ -5,22 +5,28 @@ import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel
 
 from app.models.schemas import (
-    CacheHitPayload,
+    ActivityDriver,
     Category,
     CategoryListPayload,
     ErrorPayload,
+    FoodSelection,
     HitlPayload,
     ItineraryDay,
     ItineraryPayload,
     ScoredRecommendation,
     SSEEvent,
+    TimeBlock,
 )
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
+
+from app.db.trips import create_trip
+from app.services.places import PlaceMatch, resolve_city
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +54,9 @@ class BriefRequest(BaseModel):
     session_id: str
     destination: str
     trip_length_days: int
+    activity_drivers: list[ActivityDriver]
+    food_selections: list[FoodSelection]
+    time_blocks: list[TimeBlock]
 
 
 class ResumeRequest(BaseModel):
@@ -57,6 +66,11 @@ class ResumeRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     session_id: str
+
+
+class CityAmbiguityResponse(BaseModel):
+    status: Literal["ambiguous"] = "ambiguous"
+    candidates: list[PlaceMatch]
 
 
 class BriefStateResponse(BaseModel):
@@ -159,21 +173,10 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
                 message=message,
             )
 
-        # research_category — carry cache hit payload if served from cache
+        # research_category — report the verified leads that survived research
         if name == "research_category":
             output = data.get("output", {})
             recs = output.get("scored_recommendations", [])
-            source = recs[0].source if recs else None
-            if source == "cache":
-                return SSEEvent(
-                    event_type="node_complete",
-                    node_name=name,
-                    message=f"Already know this one. Pulled {len(recs)} from the files.",
-                    payload=CacheHitPayload(
-                        category=recs[0].category,
-                        recommendations_count=len(recs),
-                    ),
-                )
             return SSEEvent(
                 event_type="node_complete",
                 node_name=name,
@@ -330,10 +333,36 @@ async def _event_generator(session_id: str):
         )
 
 
-@router.post("/brief", response_model=SessionResponse)
+@router.post(
+    "/brief",
+    response_model=SessionResponse,
+    responses={300: {"model": CityAmbiguityResponse}},
+)
 async def start_brief(req: BriefRequest):
     if req.session_id in _sessions:
         raise HTTPException(status_code=409, detail="Session already exists")
+
+    resolution = await resolve_city(req.destination)
+    if resolution.status == "ambiguous":
+        ambiguity = CityAmbiguityResponse(candidates=resolution.candidates)
+        return JSONResponse(status_code=300, content=ambiguity.model_dump())
+
+    match = resolution.match
+    if match is None:
+        raise RuntimeError("Resolved city response did not include a match")
+
+    await create_trip(
+        destination_raw=req.destination,
+        destination_place_id=match.google_place_id,
+        destination_formatted=match.formatted_address,
+        destination_lat=match.lat,
+        destination_lng=match.lng,
+        trip_length_days=req.trip_length_days,
+        activity_drivers=req.activity_drivers,
+        food_selections=req.food_selections,
+        time_blocks=req.time_blocks,
+        session_id=req.session_id,
+    )
     _sessions[req.session_id] = SessionEntry()
     asyncio.create_task(_run_graph(req.session_id, req.destination, req.trip_length_days))
     logger.info("Brief started session=%s destination=%s", req.session_id, req.destination)

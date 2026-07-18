@@ -20,6 +20,8 @@ class TripRecord(DomainRecord):
     destination_raw: str
     destination_place_id: str
     destination_formatted: str
+    destination_lat: float
+    destination_lng: float
     trip_length_days: int
     activity_drivers: list[str]
     food_selections: list[str]
@@ -49,6 +51,7 @@ class CategoryRecord(DomainRecord):
     name: str
     type: Literal["food", "activity"]
     source_drivers: list[str]
+    eligible_blocks: list[str]
     estimated_duration_minutes: int
     neighborhood_scope: str
     status: Literal["candidate", "selected", "stale_replaced"]

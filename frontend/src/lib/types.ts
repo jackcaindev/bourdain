@@ -19,7 +19,9 @@ export type Candidate = {
   description: string
   lat: number | null
   lng: number | null
-  source: 'vector_store' | 'web_search' | 'cache'
+  place_id: string | null
+  formatted_address: string | null
+  source: 'vector_store' | 'web_search'
   source_url: string | null
   raw_signal: string
 }
@@ -39,13 +41,18 @@ export type ScoredRecommendation = GradedCandidate & {
   guardrail_note: string | null
 }
 
+export type TimeBlock = 'morning' | 'afternoon' | 'night'
+
+export type ItinerarySlot = {
+  time_block: TimeBlock
+  activity: ScoredRecommendation | null
+  meals: ScoredRecommendation[]
+}
+
 export type ItineraryDay = {
   day_number: number
   neighborhood_focus: string | null
-  breakfast: ScoredRecommendation | null
-  lunch: ScoredRecommendation | null
-  dinner: ScoredRecommendation | null
-  activities: ScoredRecommendation[]
+  slots: ItinerarySlot[]
 }
 
 export type CandidatePayload = {
@@ -79,11 +86,6 @@ export type ItineraryPayload = {
   days: ItineraryDay[]
 }
 
-export type CacheHitPayload = {
-  category: string
-  recommendations_count: number
-}
-
 export type SSEPayload =
   | CandidatePayload
   | ScorePayload
@@ -92,7 +94,6 @@ export type SSEPayload =
   | CategoryListPayload
   | HitlPayload
   | ItineraryPayload
-  | CacheHitPayload
 
 export type SSEEvent = {
   event_type: SSEEventType
@@ -139,10 +140,4 @@ export function isItineraryPayload(
   payload: SSEPayload | null,
 ): payload is ItineraryPayload {
   return payload !== null && 'days' in payload
-}
-
-export function isCacheHitPayload(
-  payload: SSEPayload | null,
-): payload is CacheHitPayload {
-  return payload !== null && 'recommendations_count' in payload
 }

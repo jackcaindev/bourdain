@@ -3,11 +3,18 @@
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, TypeAdapter
 
+from app.db.places import get_or_create_place
+from app.db.recommendations import create_recommendation
+from app.db.research_runs import (
+    complete_research_run,
+    create_evidence,
+    create_research_run,
+)
 from app.graph.guardrails import guardrail_node
 from app.graph.scoring import scoring_node
 from app.graph.web_fallback_agent import run_web_fallback_agent
@@ -17,13 +24,9 @@ from app.models.schemas import (
     GradedCandidate,
     ScoredRecommendation,
 )
-from app.services.category_cache import (
-    get_cached_recommendations,
-    write_category_cache,
-)
 from app.services.embeddings import create_embeddings
-from app.services.geocoding import geocode_venue
 from app.services.llm import call_forced_tool
+from app.services.places import resolve_city, verify_venue
 from app.services.vector_store import (
     get_shared_pool,
     insert_candidate,
@@ -243,29 +246,144 @@ def _grade_candidates(
     ) from last_error
 
 
+async def _verify_candidates(
+    category: Category,
+    candidates: list[Candidate],
+    *,
+    city_name: str,
+    location_bias: tuple[float, float],
+) -> list[Candidate]:
+    """Attach Places identity data and discard candidates that cannot be verified."""
+
+    neighborhood_scope = category.neighborhood_scope or category.name
+    verification_results = await asyncio.gather(
+        *(
+            verify_venue(
+                candidate.name,
+                neighborhood_scope=neighborhood_scope,
+                city_name=city_name,
+                location_bias=location_bias,
+            )
+            for candidate in candidates
+        ),
+        return_exceptions=True,
+    )
+    verified: list[Candidate] = []
+    for candidate, match in zip(candidates, verification_results, strict=True):
+        if isinstance(match, BaseException) or match is None:
+            continue
+        place = await get_or_create_place(
+            google_place_id=match.google_place_id,
+            name=match.name,
+            formatted_address=match.formatted_address,
+            lat=match.lat,
+            lng=match.lng,
+            google_types=match.google_types,
+        )
+        verified.append(
+            candidate.model_copy(
+                update={
+                    "internal_place_id": place.id,
+                    "place_id": match.google_place_id,
+                    "lat": match.lat,
+                    "lng": match.lng,
+                    "formatted_address": match.formatted_address,
+                    "google_types": match.google_types,
+                }
+            )
+        )
+    return verified
+
+
+async def _resolve_location_bias(city_name: str) -> tuple[float, float]:
+    resolution = await resolve_city(city_name)
+    if resolution.status != "resolved" or resolution.match is None:
+        raise ResearchCategoryError(
+            f"Destination coordinates could not be resolved for {city_name!r}."
+        )
+    return resolution.match.lat, resolution.match.lng
+
+
+async def _persist_final_recommendations(
+    recommendations: list[ScoredRecommendation],
+    *,
+    trip_id: UUID,
+    category: Category,
+    research_run_id: UUID,
+) -> None:
+    assert category.id is not None
+    for recommendation in recommendations:
+        if recommendation.internal_place_id is None:
+            logger.warning(
+                "research_recommendation_persistence_skipped",
+                extra={
+                    "category": category.name,
+                    "recommendation_id": recommendation.id,
+                    "reason": "missing_internal_place_id",
+                },
+            )
+            continue
+
+        await create_evidence(
+            place_id=recommendation.internal_place_id,
+            research_run_id=research_run_id,
+            source_type=recommendation.source,
+            raw_content=recommendation.description,
+        )
+        places_content = json.dumps(
+            {
+                "formatted_address": recommendation.formatted_address,
+                "google_types": recommendation.google_types,
+                "name": recommendation.name,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        await create_evidence(
+            place_id=recommendation.internal_place_id,
+            research_run_id=research_run_id,
+            source_type="places_api",
+            raw_content=places_content,
+        )
+        await create_recommendation(
+            trip_id=trip_id,
+            category_id=category.id,
+            research_run_id=research_run_id,
+            place_id=recommendation.internal_place_id,
+            relevance_score=recommendation.relevance_score,
+            authenticity_signal=recommendation.authenticity_signal,
+            confidence=recommendation.confidence,
+            needs_fallback=recommendation.needs_fallback,
+            bourdain_score=recommendation.bourdain_score,
+            scoring_rationale=recommendation.scoring_rationale,
+            locally_owned_signal=recommendation.locally_owned_signal,
+            passed_guardrail=recommendation.passed_guardrail,
+            guardrail_note=recommendation.guardrail_note,
+        )
+
+
 async def research_category(
-    category: Category, city_slug: str, city_name: str
+    category: Category,
+    city_slug: str,
+    city_name: str,
+    trip_id: UUID,
+    trigger_reason: Literal["initial", "supervisor_replan"],
+    location_bias: tuple[float, float] | None = None,
 ) -> dict[str, list[ScoredRecommendation]]:
     """Retrieve and grade candidates for one Send API category invocation."""
 
-    cached_recommendations = await get_cached_recommendations(
-        city_slug, category.name
-    )
-    if cached_recommendations is not None:
-        logger.debug(
-            "research_category_cache_hit",
-            extra={
-                "city_slug": city_slug,
-                "category": category.name,
-                "candidate_count": len(cached_recommendations),
-            },
+    if category.id is None:
+        raise ResearchCategoryError(
+            f"Category '{category.name}' must be persisted before research."
         )
-        return {
-            "scored_recommendations": [
-                recommendation.model_copy(update={"source": "cache"})
-                for recommendation in cached_recommendations
-            ]
-        }
+
+    initial_run = await create_research_run(
+        trip_id=trip_id,
+        category_id=category.id,
+        trigger_reason=trigger_reason,
+    )
+    owning_run_id = initial_run.id
 
     logger.info(
         "research_category_start",
@@ -317,6 +435,20 @@ async def research_category(
     )
 
     if candidates:
+        if location_bias is None:
+            location_bias = await _resolve_location_bias(city_name)
+        candidates = await _verify_candidates(
+            category,
+            candidates,
+            city_name=city_name,
+            location_bias=location_bias,
+        )
+        logger.info(
+            "research_verification_complete",
+            extra={"category": category.name, "candidate_count": len(candidates)},
+        )
+
+    if candidates:
         graded = await asyncio.to_thread(_grade_candidates, category, candidates)
         logger.info(
             "research_grading_complete",
@@ -332,9 +464,11 @@ async def research_category(
             "research_grading_skipped",
             extra={
                 "category": category.name,
-                "reason": "no_vector_candidates",
+                "reason": "no_verified_vector_candidates",
             },
         )
+
+    await complete_research_run(initial_run.id)
 
     fallback_triggered = not candidates or any(
         item.needs_fallback for item in graded
@@ -348,6 +482,11 @@ async def research_category(
         },
     )
     if fallback_triggered:
+        fallback_run = await create_research_run(
+            trip_id=trip_id,
+            category_id=category.id,
+            trigger_reason="crag_fallback",
+        )
         try:
             web_results = await run_web_fallback_agent(category, city_name)
         except Exception as exc:
@@ -357,7 +496,7 @@ async def research_category(
         extracted_venues = await asyncio.to_thread(
             _extract_venues, category, web_results
         )
-        candidates.extend(
+        web_candidates = [
             Candidate(
                 id=str(uuid4()),
                 name=venue.name,
@@ -368,8 +507,22 @@ async def research_category(
                 raw_signal=venue.description,
             )
             for venue in extracted_venues
+        ]
+        if web_candidates:
+            if location_bias is None:
+                location_bias = await _resolve_location_bias(city_name)
+            web_candidates = await _verify_candidates(
+                category,
+                web_candidates,
+                city_name=city_name,
+                location_bias=location_bias,
+            )
+        candidates.extend(web_candidates)
+        graded = (
+            await asyncio.to_thread(_grade_candidates, category, candidates)
+            if candidates
+            else []
         )
-        graded = await asyncio.to_thread(_grade_candidates, category, candidates)
         logger.info(
             "research_grading_complete",
             extra={
@@ -379,6 +532,8 @@ async def research_category(
                 "post_fallback": True,
             },
         )
+        await complete_research_run(fallback_run.id)
+        owning_run_id = fallback_run.id
 
     logger.info(
         "research_category_complete",
@@ -395,10 +550,11 @@ async def research_category(
     guardrail_result = await asyncio.to_thread(  # type: ignore[arg-type]
         guardrail_node, scoring_result
     )
+    all_graded_recommendations = guardrail_result["scored_recommendations"]
     scored_recommendations = sorted(
         (
             recommendation
-            for recommendation in guardrail_result["scored_recommendations"]
+            for recommendation in all_graded_recommendations
             if recommendation.passed_guardrail
         ),
         key=lambda recommendation: (
@@ -408,19 +564,12 @@ async def research_category(
         reverse=True,
     )
 
-    geocoding_results = await asyncio.gather(
-        *(
-            geocode_venue(recommendation.name, city_name)
-            for recommendation in scored_recommendations
-        ),
-        return_exceptions=True,
+    await _persist_final_recommendations(
+        all_graded_recommendations,
+        trip_id=trip_id,
+        category=category,
+        research_run_id=owning_run_id,
     )
-    for recommendation, coordinates in zip(
-        scored_recommendations, geocoding_results, strict=True
-    ):
-        if isinstance(coordinates, BaseException) or coordinates is None:
-            continue
-        recommendation.lat, recommendation.lng = coordinates
 
     web_recommendations = [
         recommendation
@@ -457,20 +606,6 @@ async def research_category(
                 "city_slug": city_slug,
                 "category": category.name,
                 "candidate_count": len(web_recommendations),
-            },
-        )
-
-    try:
-        await write_category_cache(
-            city_slug, category.name, scored_recommendations
-        )
-    except Exception:
-        logger.exception(
-            "research_category_cache_write_failed",
-            extra={
-                "city_slug": city_slug,
-                "category": category.name,
-                "candidate_count": len(scored_recommendations),
             },
         )
 

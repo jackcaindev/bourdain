@@ -1,10 +1,13 @@
+import json
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.api.routes import (
+    BriefRequest,
     ResumeRequest,
     SessionEntry,
     _event_generator,
@@ -15,14 +18,16 @@ from app.api.routes import (
     _to_sse_event,
     get_brief_state,
     resume_brief,
+    start_brief,
 )
 from app.models.schemas import (
-    CacheHitPayload,
     Category,
     ItineraryDay,
     ItineraryPayload,
+    ItinerarySlot,
     ScoredRecommendation,
 )
+from app.services.places import CityResolution, PlaceMatch
 
 
 def _recommendation(
@@ -49,30 +54,28 @@ def _recommendation(
 
 
 class SSEConversionTests(TestCase):
-    def test_research_category_cache_hit_carries_cache_payload(self):
-        recommendation = _recommendation(source="cache")
+    def test_category_pause_includes_duration_and_eligible_blocks(self):
+        category = Category(
+            name="Late-night music rooms",
+            estimated_duration_minutes=120,
+            eligible_blocks=["night"],
+        )
+
         event = _to_sse_event(
             {
                 "event": "on_chain_end",
-                "name": "research_category",
-                "data": {
-                    "output": {
-                        "scored_recommendations": [recommendation]
-                    }
-                },
+                "name": "category_select",
+                "data": {"output": {"categories": [category]}},
             }
         )
 
         self.assertIsNotNone(event)
-        assert event is not None
-        self.assertEqual(event.event_type, "node_complete")
-        self.assertIsInstance(event.payload, CacheHitPayload)
-        self.assertEqual(
-            event.message,
-            "Already know this one. Pulled 1 from the files.",
-        )
+        assert event is not None and event.payload is not None
+        payload = event.payload.model_dump(mode="json")
+        self.assertEqual(payload["categories"][0]["estimated_duration_minutes"], 120)
+        self.assertEqual(payload["categories"][0]["eligible_blocks"], ["night"])
 
-    def test_research_category_non_cache_reports_leads(self):
+    def test_research_category_reports_leads(self):
         recommendation = _recommendation(source="web_search")
         event = _to_sse_event(
             {
@@ -104,10 +107,13 @@ class SSEConversionTests(TestCase):
                             {
                                 "day_number": 1,
                                 "neighborhood_focus": "Centro",
-                                "breakfast": recommendation,
-                                "lunch": None,
-                                "dinner": None,
-                                "activities": [],
+                                "slots": [
+                                    {
+                                        "time_block": "morning",
+                                        "activity": None,
+                                        "meals": [recommendation],
+                                    }
+                                ],
                             }
                         ]
                     }
@@ -119,7 +125,7 @@ class SSEConversionTests(TestCase):
         assert event is not None
         self.assertIsInstance(event.payload, ItineraryPayload)
         assert isinstance(event.payload, ItineraryPayload)
-        self.assertEqual(event.payload.days[0].breakfast.id, "one")
+        self.assertEqual(event.payload.days[0].slots[0].meals[0].id, "one")
 
     def test_hitl_payload_requires_selection_interrupt(self):
         recommendation = _recommendation()
@@ -224,6 +230,114 @@ class SSEStreamTests(IsolatedAsyncioTestCase):
         self.assertEqual(response.session_id, session_id)
 
 
+class StartBriefTests(IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        _sessions.clear()
+
+    async def test_resolved_city_creates_trip_before_starting_graph(self):
+        match = PlaceMatch(
+            google_place_id="porto-id",
+            name="Porto",
+            formatted_address="Porto, Portugal",
+            lat=41.1579,
+            lng=-8.6291,
+            google_types=["locality", "political"],
+        )
+        resolution = CityResolution(status="resolved", match=match)
+        req = BriefRequest(
+            session_id="porto-session",
+            destination="Porto",
+            trip_length_days=3,
+            activity_drivers=["Culture & History"],
+            food_selections=["Dinner"],
+            time_blocks=["afternoon", "night"],
+        )
+
+        with (
+            patch(
+                "app.api.routes.resolve_city",
+                new=AsyncMock(return_value=resolution),
+            ) as resolve_city,
+            patch("app.api.routes.create_trip", new_callable=AsyncMock) as create_trip,
+            patch("app.api.routes.asyncio.create_task") as create_task,
+        ):
+            response = await start_brief(req)
+
+        create_task.call_args.args[0].close()
+        resolve_city.assert_awaited_once_with("Porto")
+        create_trip.assert_awaited_once_with(
+            destination_raw="Porto",
+            destination_place_id="porto-id",
+            destination_formatted="Porto, Portugal",
+            destination_lat=41.1579,
+            destination_lng=-8.6291,
+            trip_length_days=3,
+            activity_drivers=["Culture & History"],
+            food_selections=["Dinner"],
+            time_blocks=["afternoon", "night"],
+            session_id="porto-session",
+        )
+        create_task.assert_called_once()
+        self.assertEqual(response.session_id, "porto-session")
+        self.assertIn("porto-session", _sessions)
+
+    async def test_ambiguous_city_returns_candidates_without_starting_graph(self):
+        candidate = PlaceMatch(
+            google_place_id="springfield-id",
+            name="Springfield",
+            formatted_address="Springfield, Illinois, USA",
+            lat=39.7817,
+            lng=-89.6501,
+            google_types=["locality", "political"],
+        )
+        resolution = CityResolution(status="ambiguous", candidates=[candidate])
+        req = BriefRequest(
+            session_id="springfield-session",
+            destination="Springfield",
+            trip_length_days=2,
+            activity_drivers=["Local Life & Offbeat"],
+            food_selections=["Coffee"],
+            time_blocks=["morning"],
+        )
+
+        with (
+            patch(
+                "app.api.routes.resolve_city",
+                new=AsyncMock(return_value=resolution),
+            ),
+            patch("app.api.routes.create_trip", new_callable=AsyncMock) as create_trip,
+            patch("app.api.routes.asyncio.create_task") as create_task,
+        ):
+            response = await start_brief(req)
+
+        self.assertEqual(response.status_code, 300)
+        payload = json.loads(response.body)
+        self.assertEqual(payload["status"], "ambiguous")
+        self.assertEqual(payload["candidates"][0]["google_place_id"], "springfield-id")
+        create_trip.assert_not_awaited()
+        create_task.assert_not_called()
+        self.assertNotIn("springfield-session", _sessions)
+
+    def test_brief_request_rejects_unknown_checkbox_values(self):
+        base = {
+            "session_id": "validation-session",
+            "destination": "Porto",
+            "trip_length_days": 3,
+            "activity_drivers": ["Nightlife"],
+            "food_selections": ["Dinner"],
+            "time_blocks": ["night"],
+        }
+
+        for field_name, unknown in (
+            ("activity_drivers", "Museums"),
+            ("food_selections", "Brunch"),
+            ("time_blocks", "late-night"),
+        ):
+            with self.subTest(field_name=field_name):
+                with self.assertRaises(ValidationError):
+                    BriefRequest(**{**base, field_name: [unknown]})
+
+
 class BriefStateTests(IsolatedAsyncioTestCase):
     async def test_unknown_session_returns_404(self):
         graph = SimpleNamespace(
@@ -286,10 +400,11 @@ class BriefStateTests(IsolatedAsyncioTestCase):
             ItineraryDay(
                 day_number=1,
                 neighborhood_focus="Centro",
-                breakfast=_recommendation(),
-                lunch=None,
-                dinner=None,
-                activities=[],
+                slots=[
+                    ItinerarySlot(
+                        time_block="morning", meals=[_recommendation()]
+                    )
+                ],
             )
         ]
         snapshot = SimpleNamespace(
@@ -321,10 +436,13 @@ async def _itinerary_events():
                     {
                         "day_number": 1,
                         "neighborhood_focus": "Centro",
-                        "breakfast": _recommendation(),
-                        "lunch": None,
-                        "dinner": None,
-                        "activities": [],
+                        "slots": [
+                            {
+                                "time_block": "morning",
+                                "activity": None,
+                                "meals": [_recommendation()],
+                            }
+                        ],
                     }
                 ]
             }

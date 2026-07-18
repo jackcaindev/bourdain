@@ -196,12 +196,188 @@ existing `_score_candidates`.
 
 ---
 
-## OPEN — not yet designed
+## Itinerary engine
 
-- Itinerary engine (geo-clustering, day/block/neighborhood assignment,
-  meal-by-proximity, cross-day dedup enforcement)
-- Frontend flow (checkboxes, two HITL screens, per-day confirm, swap-list,
-  map, streaming category results into the review screen as they complete)
-- Quality floor (versioned migrations, integration tests, e2e, eval corpus)
-- Migration/setup steps (deferred until the above are settled — don't want
-  to write a migration order against a schema that's still moving)
+**Category → time-block affinity.** Gap caught while speccing this: nothing
+upstream tags which block(s) an activity category is eligible for, which
+would let the assembly algorithm schedule e.g. Nightlife in a morning slot.
+Fixed with a static, deterministic driver → eligible-blocks table — a stable
+domain fact, not a judgment call, so no LLM involved:
+
+| Driver | Eligible blocks |
+|---|---|
+| Nightlife | night |
+| Arts & Music | afternoon, night |
+| Culture & History | morning, afternoon |
+| Outdoors & Nature | morning, afternoon |
+| Shopping & Markets | morning, afternoon |
+| Local Life & Offbeat | morning, afternoon, night |
+
+Food mirrors this: Breakfast→morning, Coffee→morning/afternoon, Lunch→
+afternoon, Tea→afternoon, Dinner→night.
+
+`Category` gains one field vs. the domain-model section above:
+`eligible_blocks: list[str]`, set at derivation time from this table based
+on `source_drivers` — not LLM output.
+
+**Assembly algorithm (activities):**
+1. Representative coordinate per category = centroid of its verified
+   `Recommendation`s' `Place` coordinates.
+2. Greedy bin-pack into `day × eligible_block` slots against the 240/240/180
+   targets, `eligible_blocks` as a hard constraint.
+3. Tie-break when multiple valid placements exist: prefer a day that
+   *already* uses this category's neighborhood_scope (consolidate onto one
+   day) over a fresh day, then prefer geographic proximity to what's
+   already placed that day. **Corrected wording** — an earlier draft of
+   this doc said "prefer a day whose neighborhood hasn't already been
+   used," which is backwards. The actual goal, per the original ask, is to
+   avoid re-suggesting the same neighborhood on a *different* day (e.g.
+   don't send the user back to South Congress on day 2) — which means
+   consolidating same-neighborhood categories onto one day when there's
+   room, not spreading them out. **Cross-day dedup lives here, at assembly
+   time — not at selection time as originally stated.** Categories aren't
+   day-assigned until assembly, so a selection-time dedup query (as
+   originally speced under "Cross-day dedup" in the domain model section
+   above) isn't actually possible; that earlier note is superseded by
+   this.
+4. A category spanning two blocks in one day (the "significant" case from
+   the original vision) is determined by `estimated_duration_minutes`
+   exceeding one block's target, and consumes both blocks' budget that day.
+
+**Selection ceiling:** category-selection UI hard-caps at total available
+budget (block target × day count, summed) rather than allowing overfill.
+Eliminates a "what gets cut" priority-logic case in assembly by preventing
+it at input instead. Symmetric with "underfill is fine."
+
+**Meal attachment (after activities are placed):** each checked meal type
+resolves to a block that day via the affinity table; attach the nearest
+verified meal-candidate to the closest already-placed activity in that
+block, by real coordinate distance. Edge cases: no activity in a meal's
+mapped block that day → fall back to the closest activity anywhere that
+day; no activities placed that day at all → fall back to the trip
+destination's centroid rather than failing.
+
+**Swap-list:** same-category `Recommendation`s not currently occupying a
+slot. "Further research" (`on_demand` `ResearchRun`) fires only when that
+pool is actually exhausted — a checkable condition, not a UI guess.
+
+---
+
+## Frontend flow
+
+**Graph terminates after itinerary assembly — the big call.** Per-day
+confirm and swaps are pure deterministic state mutation against already-
+computed candidate pools; no LLM, no orchestration need. Keeping a third
+`interrupt()` open for that would mean a checkpointed thread sitting
+paused indefinitely while the user reviews — real operational risk (an
+abandoned thread never resolves) for zero benefit. Assembly produces a
+`draft`-status `Itinerary`, the graph run completes normally. Confirm and
+swap become plain REST endpoints against round 1's persisted tables,
+decoupled from LangGraph entirely. Only "further research" needs the LLM
+again, and that's a small targeted call reusing `research_category`'s
+verified-candidate logic for one category — not a graph resume.
+
+**New REST surface (beyond existing SSE `/brief` and `/resume`):**
+- `POST /trips/{trip_id}/validate-destination`
+- `GET /trips/{trip_id}/itinerary`
+- `PATCH /trips/{trip_id}/itinerary/days/{day_number}/confirm`
+- `PATCH /trips/{trip_id}/itinerary/slots/{slot_id}` — swap; validates the
+  new recommendation belongs to the same category and trip before writing
+- `POST /trips/{trip_id}/categories/{category_id}/further-research`
+
+**City validation UX:** submit-then-disambiguate, not live Autocomplete.
+Autocomplete is a separate, session-billed Places surface from the Text
+Search already used for venue verification — adding it means a second
+integration pattern for one input field. User submits a destination,
+backend resolves via the same Text Search call already speced. One strong
+match → proceed into the graph. Genuinely ambiguous (Portland OR vs. ME) →
+return candidates, one-tap disambiguation screen before the trip is
+created.
+
+**HITL 1 — one combined screen, not two.** Activities and food both need
+selection, but a third graph pause to separate them is real graph
+complexity for a UX grouping a single screen with two sections handles
+fine. One `interrupt()`, resume payload carries both selected activity and
+food category ids. Budget-fill computed client-side per block from data
+already in `CategoryListPayload` — which needs `estimated_duration_minutes`
+and `eligible_blocks` added to it, a richer existing payload, not a new
+round-trip.
+
+**HITL 2 shortlist — progressive render, mostly free.** `ScorePayload`
+already fires per-recommendation as scoring completes, before the HITL-2
+pause — the streaming data exists today, `SelectionScreen.tsx` just isn't
+consuming it yet (it only renders from the store's `recommendations`,
+populated at the `HitlPayload` pause). Fix: Zustand accumulates
+`ScorePayload` events into a running list as they arrive; screen renders
+from that, populating category-by-category. Submission stays gated on the
+HITL-2 pause firing (all categories done), not allowing partial submit —
+the perceived-latency win was never about early submission, just not
+staring at a blank screen. **Map:** itinerary-view only, not on this
+screen — see note above.
+
+**Dead code from round 1, to clean up when `research.py` is next touched:**
+`category_cache` was dropped in the migration, so `CacheHitPayload` and the
+cache-check branch in `research_category` now reference a table that
+doesn't exist. Expected — round 1 was persistence-only — but needs to
+actually get removed, not just left dangling.
+
+---
+
+## Quality floor
+
+**Test pyramid — four tiers, mocked boundary moves progressively outward:**
+
+1. **Unit** (existing convention, round 1's `db/` tests already this tier)
+   — individual functions, real Postgres for db-layer tests, direct
+   `AsyncMock` patches elsewhere.
+2. **Integration (new)** — wires multiple real modules together, mocks only
+   the actual external network boundary (Anthropic, OpenAI embeddings,
+   Tavily, Google Places). E.g. a full `research_category` run against
+   fixture API responses, asserting a real `Recommendation` lands in
+   Postgres correctly linked to a real `Place`. This is the tier that
+   proves the Places-gate-before-grading reordering actually works
+   end-to-end, not just in isolation.
+3. **E2E (new)** — `httpx.AsyncClient` against the running FastAPI app +
+   real Postgres, external APIs mocked at the network boundary. Full
+   journey: start brief → SSE stream → HITL-1 resume → HITL-2 resume →
+   itinerary assembled (graph terminates) → the new REST endpoints
+   (confirm, swap, further-research) exercised against the persisted
+   result. Validates the graph-terminates-after-assembly decision as a
+   full user journey.
+4. **Live smoke (optional, not part of default `pytest`)** — real
+   Anthropic/OpenAI/Tavily/Places calls for one real city, run manually or
+   behind an env flag. Catches real-API drift mocked fixtures can't catch
+   by construction. Useful for interview-day confidence, not for every
+   test run.
+
+**Eval corpus — richer than v1's, since more is now deterministic and
+checkable.** Same 5-8 hand-picked destinations (touristy-known +
+lesser-known mix), still separate from CRAG's per-query grading, plus two
+new checks v1 had no way to measure at all:
+- Places resolution rate per category (proposed vs. verified) — a proxy
+  for hallucination rate
+- Itinerary structural validity: every checked time-block filled within
+  tolerance, no cross-day neighborhood repeats, every checked meal type
+  attached
+
+**Explicit scope cut:** no CI/CD. Same call already made on ap-workflow —
+optional for a solo portfolio project, cheaper to name as a known gap in
+the interview than to build for an audience of one.
+
+**Dependency cleanup falling out of this round:** `geopy` removed (Places
+replaces Nominatim entirely). Places API calls go through raw `httpx` (new
+dependency), not the `googlemaps` SDK — matches the existing lightweight-
+wrapper convention (`vector_store.py`, `web_search.py`) over pulling in a
+heavy client library for a straightforward REST + field-mask-header API.
+
+---
+
+## Spec status
+
+All six sections from the original shaping sequence are now settled:
+domain model, category/food derivation, Places verification gate,
+itinerary engine, frontend flow, quality floor. Round 1 (persistence layer)
+is implemented and awaiting verification. Remaining Codex rounds — research
+pipeline reorder + Places gate, itinerary engine, REST/frontend layer,
+integration/e2e/eval — get written and verified one at a time against this
+doc, per-round, not batched.

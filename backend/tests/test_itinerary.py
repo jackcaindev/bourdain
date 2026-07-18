@@ -1,30 +1,32 @@
 from unittest import TestCase
 
-from app.graph.itinerary import (
-    MAX_ACTIVITIES_PER_DAY,
-    _is_meal_candidate,
-    assemble_itinerary,
-)
-from app.models.schemas import ScoredRecommendation
+from app.graph.itinerary import assemble_itinerary
+from app.models.schemas import Category, ScoredRecommendation
 
 
 def _recommendation(
     recommendation_id: str,
     category: str,
-    name: str | None = None,
+    *,
+    bourdain_score: int = 4,
+    relevance_score: float = 0.8,
+    lat: float = 40.0,
+    lng: float = -74.0,
 ) -> ScoredRecommendation:
     return ScoredRecommendation(
         id=recommendation_id,
-        name=name or recommendation_id.title(),
+        name=recommendation_id.title(),
         category=category,
         description="A selected recommendation.",
+        lat=lat,
+        lng=lng,
         source="vector_store",
-        raw_signal="Local evidence.",
-        relevance_score=0.9,
+        raw_signal="Specific local evidence.",
+        relevance_score=relevance_score,
         authenticity_signal="Strong local character.",
         confidence="high",
         needs_fallback=False,
-        bourdain_score=4,
+        bourdain_score=bourdain_score,
         scoring_rationale="A strong fit.",
         locally_owned_signal=None,
         passed_guardrail=True,
@@ -32,167 +34,186 @@ def _recommendation(
     )
 
 
+def _category(
+    name: str,
+    category_type: str,
+    blocks: list[str],
+    *,
+    duration: int = 60,
+    neighborhood: str = "Centro",
+) -> Category:
+    return Category(
+        name=name,
+        type=category_type,
+        estimated_duration_minutes=duration,
+        eligible_blocks=blocks,
+        neighborhood_scope=neighborhood,
+    )
+
+
 def _assemble(
+    categories: list[Category],
     recommendations: list[ScoredRecommendation],
-    day_count: int,
+    *,
+    days: int = 1,
+    time_blocks: list[str] | None = None,
     selections: list[str] | None = None,
+    destination: tuple[float, float] = (40.0, -74.0),
 ):
     return assemble_itinerary(
         {
+            "selected_categories": categories,
             "scored_recommendations": recommendations,
             "user_selections": selections
             if selections is not None
-            else [item.id for item in recommendations],
-            "trip_length_days": day_count,
+            else [recommendation.id for recommendation in recommendations],
+            "trip_length_days": days,
+            "time_blocks": time_blocks or ["morning", "afternoon", "night"],
+            "destination_lat": destination[0],
+            "destination_lng": destination[1],
         }
     )["itinerary"]
 
 
+def _slot(day, block):
+    return next(slot for slot in day.slots if slot.time_block == block)
+
+
 class AssembleItineraryTests(TestCase):
-    def test_meal_candidate_requires_whole_word_bar_match(self):
-        recommendation = _recommendation(
-            "barton-springs",
-            "Barton Springs & Austin's Outdoor Water Culture",
+    def test_drops_category_without_an_eligible_trip_block(self):
+        category = _category("Night music", "activity", ["night"])
+        recommendation = _recommendation("music", category.name)
+
+        with self.assertLogs("app.graph.itinerary", level="WARNING"):
+            itinerary = _assemble(
+                [category], [recommendation], time_blocks=["morning"]
+            )
+
+        self.assertEqual(itinerary[0].slots, [])
+
+    def test_highest_bourdain_score_wins_category_occupancy(self):
+        category = _category("Museums", "activity", ["morning"])
+        lower = _recommendation(
+            "lower", category.name, bourdain_score=4, relevance_score=1.0
+        )
+        winner = _recommendation(
+            "winner", category.name, bourdain_score=5, relevance_score=0.1
         )
 
-        self.assertFalse(_is_meal_candidate(recommendation))
+        itinerary = _assemble([category], [lower, winner])
 
-    def test_meal_candidate_requires_whole_word_eat_match(self):
-        recommendation = _recommendation(
-            "amphitheater-district",
-            "Amphitheater District",
+        self.assertEqual(_slot(itinerary[0], "morning").activity.id, "winner")
+
+    def test_long_activity_with_multiple_eligible_blocks_spans_same_day(self):
+        category = _category(
+            "Long hike",
+            "activity",
+            ["morning", "afternoon"],
+            duration=300,
         )
+        recommendation = _recommendation("hike", category.name)
 
-        self.assertFalse(_is_meal_candidate(recommendation))
-
-    def test_meal_candidate_still_matches_real_food_category(self):
-        recommendation = _recommendation(
-            "food-truck",
-            "Food Truck & Street Food Subculture",
-        )
-
-        self.assertTrue(_is_meal_candidate(recommendation))
-
-    def test_meal_candidate_matches_food_keyword_in_name(self):
-        recommendation = _recommendation(
-            "ciscos",
-            "East Austin Craft & Neighborhood Transformation",
-            name="Cisco's Restaurant Bakery & Bar",
-        )
-
-        self.assertTrue(_is_meal_candidate(recommendation))
-
-    def test_meal_candidate_rejects_name_and_category_without_food_keyword(self):
-        recommendation = _recommendation(
-            "canopy",
-            "East Austin Craft & Neighborhood Transformation",
-            name="Canopy Arts Complex",
-        )
-
-        self.assertFalse(_is_meal_candidate(recommendation))
-
-    def test_distributes_meals_and_activities_evenly_across_days(self):
-        recommendations = [
-            *[_recommendation(f"meal-{index}", "Food") for index in range(6)],
-            *[_recommendation(f"activity-{index}", "Culture") for index in range(4)],
-        ]
-
-        itinerary = _assemble(recommendations, day_count=2)
+        itinerary = _assemble([category], [recommendation], days=2)
 
         self.assertEqual(
-            [
-                [day.breakfast.id, day.lunch.id, day.dinner.id]
-                for day in itinerary
-            ],
-            [
-                ["meal-0", "meal-2", "meal-4"],
-                ["meal-1", "meal-3", "meal-5"],
-            ],
+            [slot.time_block for slot in itinerary[0].slots],
+            ["morning", "afternoon"],
         )
-        self.assertEqual(
-            [[item.id for item in day.activities] for day in itinerary],
-            [["activity-0", "activity-2"], ["activity-1", "activity-3"]],
-        )
-
-    def test_interleaves_meal_categories_to_avoid_same_day_monoculture(self):
-        recommendations = [
-            _recommendation("food-0", "Food"),
-            _recommendation("restaurant-0", "Restaurant"),
-            _recommendation("food-1", "Food"),
-            _recommendation("cafe-0", "Cafe"),
-            _recommendation("food-2", "Food"),
-            _recommendation("restaurant-1", "Restaurant"),
-        ]
-
-        itinerary = _assemble(recommendations, day_count=2)
-
-        for day in itinerary:
-            meal_categories = {
-                day.breakfast.category,
-                day.lunch.category,
-                day.dinner.category,
-            }
-            self.assertGreater(len(meal_categories), 1)
-
-    def test_caps_activities_at_two_per_day_and_drops_overflow(self):
-        recommendations = [
-            _recommendation(f"activity-{index}", "Culture") for index in range(7)
-        ]
-
-        itinerary = _assemble(recommendations, day_count=2)
-
         self.assertTrue(
-            all(len(day.activities) == MAX_ACTIVITIES_PER_DAY for day in itinerary)
+            all(slot.activity.id == "hike" for slot in itinerary[0].slots)
         )
-        assigned_ids = {
-            item.id for day in itinerary for item in day.activities
-        }
+        self.assertEqual(itinerary[1].slots, [])
+
+    def test_long_single_block_activity_is_not_split_across_days(self):
+        category = _category(
+            "Long workshop", "activity", ["morning"], duration=500
+        )
+        recommendation = _recommendation("workshop", category.name)
+
+        itinerary = _assemble([category], [recommendation], days=2)
+
+        occupied_slots = [
+            slot
+            for day in itinerary
+            for slot in day.slots
+            if slot.activity is not None
+        ]
+        self.assertEqual(len(occupied_slots), 1)
+        self.assertEqual(occupied_slots[0].activity.id, "workshop")
+
+    def test_same_neighborhood_is_kept_on_one_day_when_an_open_block_exists(self):
+        morning = _category(
+            "Morning history",
+            "activity",
+            ["morning"],
+            duration=120,
+            neighborhood="Old Town",
+        )
+        flexible = _category(
+            "Local studios",
+            "activity",
+            ["morning", "afternoon"],
+            duration=60,
+            neighborhood="Old Town",
+        )
+        recommendations = [
+            _recommendation("history", morning.name),
+            _recommendation("studios", flexible.name),
+        ]
+
+        itinerary = _assemble([morning, flexible], recommendations, days=2)
+
         self.assertEqual(
-            assigned_ids,
-            {"activity-0", "activity-1", "activity-2", "activity-3"},
+            {slot.activity.id for slot in itinerary[0].slots},
+            {"history", "studios"},
         )
+        self.assertEqual(itinerary[1].slots, [])
 
-    def test_leaves_unfilled_meal_slots_as_none(self):
-        itinerary = _assemble(
-            [_recommendation("only-meal", "Neighborhood Café")],
-            day_count=3,
+    def test_food_without_same_block_activity_uses_nearest_activity_day(self):
+        activity = _category(
+            "River walk", "activity", ["morning"], neighborhood="Riverside"
         )
-
-        self.assertEqual(itinerary[0].breakfast.id, "only-meal")
-        self.assertIsNone(itinerary[1].breakfast)
-        self.assertIsNone(itinerary[2].breakfast)
-        for day in itinerary:
-            self.assertIsNone(day.lunch)
-            self.assertIsNone(day.dinner)
-
-    def test_uses_unique_majority_category_as_soft_focus_and_none_for_tie(self):
+        food = _category(
+            "Lunch counters", "food", ["afternoon"], neighborhood="Riverside"
+        )
         recommendations = [
-            _recommendation("food-one", "Food"),
-            _recommendation("food-two", "Food"),
-            _recommendation("food-three", "Food"),
-            _recommendation("food-four", "Food"),
-            _recommendation("museum", "Culture"),
-            _recommendation("music", "Music"),
-            _recommendation("gallery", "Art"),
-            _recommendation("concert", "Music"),
+            _recommendation("walk", activity.name, lat=40.01, lng=-74.01),
+            _recommendation("lunch", food.name, lat=40.02, lng=-74.02),
         ]
 
-        itinerary = _assemble(recommendations, day_count=2)
+        itinerary = _assemble([activity, food], recommendations, days=2)
 
-        self.assertEqual(itinerary[0].neighborhood_focus, "Food")
-        self.assertIsNone(itinerary[1].neighborhood_focus)
+        self.assertEqual(_slot(itinerary[0], "afternoon").meals[0].id, "lunch")
+        self.assertEqual(itinerary[1].slots, [])
 
-    def test_filters_out_recommendations_not_selected_by_the_user(self):
-        recommendations = [
-            _recommendation("selected", "Food"),
-            _recommendation("not-selected", "Culture"),
-        ]
-
-        itinerary = _assemble(
-            recommendations,
-            day_count=1,
-            selections=["selected"],
+    def test_food_on_trip_without_activities_uses_destination_anchor(self):
+        food = _category("Breakfast stalls", "food", ["morning"])
+        recommendation = _recommendation(
+            "breakfast", food.name, lat=40.001, lng=-74.001
         )
 
-        self.assertEqual(itinerary[0].breakfast.id, "selected")
-        self.assertEqual(itinerary[0].activities, [])
+        itinerary = _assemble(
+            [food],
+            [recommendation],
+            days=2,
+            destination=(40.0, -74.0),
+        )
+
+        self.assertEqual(_slot(itinerary[0], "morning").meals[0].id, "breakfast")
+        self.assertEqual(itinerary[1].slots, [])
+
+    def test_neighborhood_focus_is_none_for_equal_counts(self):
+        activity = _category(
+            "Gallery", "activity", ["morning"], neighborhood="North"
+        )
+        food = _category(
+            "Dinner", "food", ["morning"], neighborhood="South"
+        )
+        recommendations = [
+            _recommendation("gallery", activity.name),
+            _recommendation("dinner", food.name),
+        ]
+
+        itinerary = _assemble([activity, food], recommendations)
+
+        self.assertIsNone(itinerary[0].neighborhood_focus)

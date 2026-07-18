@@ -2,6 +2,7 @@
 
 import operator
 from typing import Annotated, TypedDict
+from uuid import UUID
 
 from app.models.schemas import (
     Category,
@@ -13,9 +14,14 @@ from app.models.schemas import (
 class BriefState(TypedDict):
     """Shared state passed through the travel research graph."""
 
+    # The durable trip identity joins graph work to domain persistence.
+    trip_id: UUID
     # The requested destination anchors every research, grading, and itinerary decision.
     destination: str
     city_slug: str
+    destination_lat: float
+    destination_lng: float
+    time_blocks: list[str]
     # Trip length determines how many itinerary days later assembly must produce.
     trip_length_days: int
     # Categories preserve the supervisor's chosen research lanes for downstream search.

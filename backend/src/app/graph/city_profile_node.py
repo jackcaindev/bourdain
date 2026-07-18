@@ -1,67 +1,80 @@
-"""Load or derive destination-specific city profile categories."""
+"""Derive and persist checkbox-driven research categories for a trip."""
 
 import asyncio
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
+from uuid import UUID
 
-from pydantic import Field, TypeAdapter
+from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, Field, TypeAdapter
 
+from app.db.categories import create_category
+from app.db.trips import get_trip_by_session_id
 from app.graph.state import BriefState
-from app.models.schemas import Category
-from app.services.city_profiles import (
-    get_city_profile,
-    normalize_city_slug,
-    save_city_profile,
-)
+from app.models.domain import CategoryRecord, TripRecord
+from app.models.schemas import Category, TimeBlock
+from app.services.city_profiles import normalize_city_slug
 from app.services.llm import call_forced_tool
 
 
 logger = logging.getLogger(__name__)
 
 CITY_PROFILE_MODEL = "claude-haiku-4-5"
-_CATEGORY_LIST_ADAPTER = TypeAdapter(
-    Annotated[list[Category], Field(min_length=5, max_length=8)]
+
+ACTIVITY_BLOCK_AFFINITY: dict[str, list[TimeBlock]] = {
+    "Nightlife": ["night"],
+    "Arts & Music": ["afternoon", "night"],
+    "Culture & History": ["morning", "afternoon"],
+    "Outdoors & Nature": ["morning", "afternoon"],
+    "Shopping & Markets": ["morning", "afternoon"],
+    "Local Life & Offbeat": ["morning", "afternoon", "night"],
+}
+MEAL_BLOCK_AFFINITY: dict[str, list[TimeBlock]] = {
+    "Breakfast": ["morning"],
+    "Coffee": ["morning", "afternoon"],
+    "Lunch": ["afternoon"],
+    "Tea": ["afternoon"],
+    "Dinner": ["night"],
+}
+
+
+class _DerivedCategory(BaseModel):
+    name: str
+    estimated_duration_minutes: int = Field(gt=0)
+    neighborhood_scope: str
+
+
+_DERIVED_CATEGORIES_ADAPTER = TypeAdapter(
+    Annotated[list[_DerivedCategory], Field(min_length=2, max_length=3)]
 )
-
-
-def _target_category_count(trip_length_days: int) -> int:
-    """Scale category breadth loosely with trip length, bounded to 5-8."""
-
-    return min(8, max(5, 4 + (trip_length_days + 1) // 2))
 
 
 def _category_tool_schema() -> dict[str, Any]:
     return {
-        "name": "derive_city_profile_categories",
-        "description": (
-            "Derives authentic, destination-specific research categories for a "
-            "city profile."
-        ),
+        "name": "derive_driver_categories",
+        "description": "Derive candidate research categories for one checked driver.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "categories": {
                     "type": "array",
-                    "minItems": 5,
-                    "maxItems": 8,
+                    "minItems": 2,
+                    "maxItems": 3,
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {
-                                "type": "string",
-                                "description": (
-                                    "A concise, destination-specific research lane."
-                                ),
+                            "name": {"type": "string"},
+                            "estimated_duration_minutes": {
+                                "type": "integer",
+                                "minimum": 1,
                             },
-                            "rationale": {
-                                "type": "string",
-                                "description": (
-                                    "Why this category reveals authentic local "
-                                    "character in this destination."
-                                ),
-                            },
+                            "neighborhood_scope": {"type": "string"},
                         },
-                        "required": ["name", "rationale"],
+                        "required": [
+                            "name",
+                            "estimated_duration_minutes",
+                            "neighborhood_scope",
+                        ],
                         "additionalProperties": False,
                     },
                 }
@@ -72,137 +85,149 @@ def _category_tool_schema() -> dict[str, Any]:
     }
 
 
-def _system_prompt() -> str:
+def _system_prompt(category_type: Literal["food", "activity"]) -> str:
     return (
-        "You build persistent city profiles for The Bourdain Brief. Derive "
-        "research categories that reveal how this specific place actually lives, "
-        "with authentic, non-touristy local character rather than a generic tourist "
-        "checklist. Favor locally grounded lanes such as street food traditions, "
-        "independent live music venues, neighborhood markets, local craft, and "
-        "outdoor activities distinctive to the place, but only when they genuinely "
-        "fit the destination. Avoid broad categories like sightseeing, attractions, "
-        "shopping, or restaurants when a sharper local lens is possible. Use the "
-        "provided tool exactly once."
+        "You derive authentic, destination-specific candidate research lanes for "
+        "The Bourdain Brief. Work on exactly one checked "
+        f"{category_type} driver. Return 2-3 distinct, non-touristy categories. "
+        "Estimate a realistic duration for each and provide neighborhood steering "
+        "text, not a claimed geographic boundary. Do not choose time blocks; those "
+        "are assigned deterministically by the application. Use the tool once."
     )
 
 
-def _user_prompt(
-    destination: str,
-    trip_length_days: int,
-    target_category_count: int,
-) -> str:
+def _user_prompt(trip: TripRecord, source_driver: str) -> str:
     return (
-        f"Destination: {destination}\n"
-        f"Trip length: {trip_length_days} day(s)\n\n"
-        f"Derive {target_category_count} distinct research categories for this "
-        "city. Make every category specific enough to steer research toward "
-        "authentic, non-touristy places or experiences. Each rationale must "
-        "explain what the category reveals about this destination and why it fits "
-        "the available trip length."
+        f"Destination: {trip.destination_formatted}\n"
+        f"Trip length: {trip.trip_length_days} day(s)\n"
+        f"Checked driver: {source_driver}\n"
+        f"Traveler-selected time blocks: {', '.join(trip.time_blocks) or 'none'}\n\n"
+        "Derive 2-3 candidate categories specifically for this one checked driver."
     )
 
 
-def _derive_categories(
-    destination: str,
-    trip_length_days: int,
-) -> list[Category]:
-    target_category_count = _target_category_count(trip_length_days)
+def _derive_categories_for_driver(
+    trip: TripRecord,
+    source_driver: str,
+    category_type: Literal["food", "activity"],
+) -> list[_DerivedCategory]:
     tool_input = call_forced_tool(
-        system_prompt=_system_prompt(),
-        user_prompt=_user_prompt(
-            destination,
-            trip_length_days,
-            target_category_count,
-        ),
+        system_prompt=_system_prompt(category_type),
+        user_prompt=_user_prompt(trip, source_driver),
         tool_schema=_category_tool_schema(),
         model=CITY_PROFILE_MODEL,
-        max_tokens=1400,
+        max_tokens=900,
     )
-    return _CATEGORY_LIST_ADAPTER.validate_python(tool_input["categories"])
+    return _DERIVED_CATEGORIES_ADAPTER.validate_python(tool_input["categories"])
+
+
+def _to_category(record: CategoryRecord) -> Category:
+    return Category(
+        id=record.id,
+        name=record.name,
+        rationale=record.neighborhood_scope,
+        type=record.type,
+        source_drivers=record.source_drivers,
+        estimated_duration_minutes=record.estimated_duration_minutes,
+        neighborhood_scope=record.neighborhood_scope,
+        eligible_blocks=record.eligible_blocks,
+        status=record.status,
+    )
+
+
+async def _persist_derived_categories(
+    trip: TripRecord,
+    source_driver: str,
+    category_type: Literal["food", "activity"],
+    derived_categories: list[_DerivedCategory],
+) -> list[Category]:
+    affinity = (
+        ACTIVITY_BLOCK_AFFINITY
+        if category_type == "activity"
+        else MEAL_BLOCK_AFFINITY
+    )
+    eligible_blocks = affinity[source_driver]
+    persisted: list[Category] = []
+    for derived in derived_categories:
+        record = await create_category(
+            trip_id=trip.id,
+            name=derived.name,
+            type=category_type,
+            source_drivers=[source_driver],
+            eligible_blocks=eligible_blocks,
+            estimated_duration_minutes=derived.estimated_duration_minutes,
+            neighborhood_scope=derived.neighborhood_scope,
+            status="candidate",
+        )
+        persisted.append(_to_category(record))
+    return persisted
+
+
+def _session_id(config: RunnableConfig) -> str:
+    thread_id = config.get("configurable", {}).get("thread_id")
+    if not isinstance(thread_id, str) or not thread_id:
+        raise ValueError("city_profile_node requires a string thread_id")
+    return thread_id
 
 
 async def city_profile_node(
     state: BriefState,
-) -> dict[str, str | int | list[Category] | None]:
-    """Return stored city categories, deriving and persisting them on a miss."""
+    config: RunnableConfig,
+) -> dict[str, UUID | str | float | int | list[Category] | None]:
+    """Derive 2-3 candidates per selected driver and persist them for HITL 1."""
 
-    destination = state["destination"]
-    trip_length_days = state["trip_length_days"]
-    city_slug = normalize_city_slug(destination)
+    session_id = _session_id(config)
+    trip = await get_trip_by_session_id(session_id)
+    if trip is None:
+        raise ValueError(f"No trip found for session {session_id!r}")
 
-    logger.info(
-        "city_profile_node_start",
-        extra={
-            "destination": destination,
-            "city_slug": city_slug,
-            "trip_length_days": trip_length_days,
-        },
+    driver_specs = [
+        *((driver, "activity") for driver in trip.activity_drivers),
+        *((meal, "food") for meal in trip.food_selections),
+    ]
+    derived_groups = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                _derive_categories_for_driver,
+                trip,
+                source_driver,
+                category_type,
+            )
+            for source_driver, category_type in driver_specs
+        )
     )
 
-    try:
-        categories = await get_city_profile(city_slug)
-    except Exception:
-        logger.exception(
-            "city_profile_node_lookup_failed",
-            extra={"destination": destination, "city_slug": city_slug},
+    persisted_groups = await asyncio.gather(
+        *(
+            _persist_derived_categories(
+                trip,
+                source_driver,
+                category_type,
+                derived_categories,
+            )
+            for (source_driver, category_type), derived_categories in zip(
+                driver_specs, derived_groups, strict=True
+            )
         )
-        raise
-
-    if categories is not None:
-        logger.info(
-            "city_profile_node_complete",
-            extra={
-                "destination": destination,
-                "city_slug": city_slug,
-                "category_count": len(categories),
-                "profile_source": "database",
-            },
-        )
-        return {
-            "city_slug": city_slug,
-            "categories": categories,
-            "research_iteration": 0,
-            "replan_categories": [],
-            "selected_categories": None,
-        }
-
-    try:
-        categories = await asyncio.to_thread(
-            _derive_categories,
-            destination,
-            trip_length_days,
-        )
-    except Exception:
-        logger.exception(
-            "city_profile_node_generation_failed",
-            extra={"destination": destination, "city_slug": city_slug},
-        )
-        raise
-
-    try:
-        await save_city_profile(city_slug, destination, categories)
-    except Exception:
-        logger.exception(
-            "city_profile_node_save_failed",
-            extra={
-                "destination": destination,
-                "city_slug": city_slug,
-                "category_count": len(categories),
-            },
-        )
-        raise
+    )
+    categories = [category for group in persisted_groups for category in group]
+    city_slug = normalize_city_slug(trip.destination_formatted)
 
     logger.info(
         "city_profile_node_complete",
         extra={
-            "destination": destination,
+            "destination": trip.destination_formatted,
             "city_slug": city_slug,
+            "driver_count": len(driver_specs),
             "category_count": len(categories),
-            "profile_source": "llm",
         },
     )
     return {
+        "trip_id": trip.id,
         "city_slug": city_slug,
+        "destination_lat": trip.destination_lat,
+        "destination_lng": trip.destination_lng,
+        "time_blocks": trip.time_blocks,
         "categories": categories,
         "research_iteration": 0,
         "replan_categories": [],

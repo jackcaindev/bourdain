@@ -17,21 +17,20 @@ export function ItineraryView() {
     )
   }
 
-  const recommendations = days.flatMap((day) =>
-    [day.breakfast, day.lunch, day.dinner, ...day.activities].filter(
-      (recommendation): recommendation is ScoredRecommendation => recommendation !== null,
-    ),
-  )
+  const recommendations = Array.from(new Map(
+    days.flatMap((day) => day.slots.flatMap((slot) =>
+      [slot.activity, ...slot.meals].filter(
+        (recommendation): recommendation is ScoredRecommendation => recommendation !== null,
+      ),
+    )).map((recommendation) => [recommendation.id, recommendation]),
+  ).values())
 
   return (
     <main className="content-page itinerary-page">
       <header className="itinerary-title">
         <p className="eyebrow">YOUR BOURDAIN BRIEF</p>
         <h1>The itinerary</h1>
-        <p>{days.length} DAYS / {days.reduce((count, day) => (
-          count + Number(Boolean(day.breakfast)) + Number(Boolean(day.lunch)) +
-          Number(Boolean(day.dinner)) + day.activities.length
-        ), 0)} PLACES</p>
+        <p>{days.length} DAYS / {recommendations.length} PLACES</p>
       </header>
       {days.map((day) => <ItineraryDay key={day.day_number} day={day} />)}
       <ItineraryMap recommendations={recommendations} />

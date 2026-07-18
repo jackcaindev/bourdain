@@ -7,6 +7,8 @@ export const recommendation: ScoredRecommendation = {
   description: 'A neighborhood cafe.',
   lat: 41.1579,
   lng: -8.6291,
+  place_id: 'places/cafe-local',
+  formatted_address: 'Cafe Local, Centro, Porto',
   source: 'web_search',
   source_url: 'https://example.com/cafe',
   raw_signal: 'Specific local evidence.',
@@ -32,8 +34,9 @@ export const marketRecommendation: ScoredRecommendation = {
 export const itineraryDay: ItineraryDay = {
   day_number: 1,
   neighborhood_focus: 'Centro',
-  breakfast: recommendation,
-  lunch: null,
-  dinner: null,
-  activities: [{ ...recommendation, id: 'rec-2', name: 'Old Market' }],
+  slots: [{
+    time_block: 'morning',
+    activity: { ...recommendation, id: 'rec-2', name: 'Old Market' },
+    meals: [recommendation],
+  }],
 }

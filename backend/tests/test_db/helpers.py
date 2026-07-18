@@ -51,9 +51,10 @@ class DatabaseTestCase(IsolatedAsyncioTestCase):
             """
             INSERT INTO trips (
                 destination_raw, destination_place_id, destination_formatted,
+                destination_lat, destination_lng,
                 trip_length_days, status, session_id
             )
-            VALUES ($1, $2, $3, 3, 'gathering_categories', $4)
+            VALUES ($1, $2, $3, 40.0, -74.0, 3, 'gathering_categories', $4)
             RETURNING id
             """,
             "Test City",

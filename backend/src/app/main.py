@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.logging_config import configure_logging
 from app.services.vector_store import get_shared_pool
+from app.services.places import close_shared_client
 from app.graph.build import build_graph
 from app.api.routes import router, _sessions, set_graph
 
@@ -33,9 +34,12 @@ async def lifespan(app: FastAPI):
     async with build_graph() as graph:         # opens checkpointer, compiles once
         set_graph(graph)
         sweep_task = asyncio.create_task(_ttl_sweep())
-        yield
-        sweep_task.cancel()
-        await asyncio.gather(sweep_task, return_exceptions=True)
+        try:
+            yield
+        finally:
+            sweep_task.cancel()
+            await asyncio.gather(sweep_task, return_exceptions=True)
+            await close_shared_client()
     # build_graph()'s finally handles close_shared_pool() — don't call it here
 
 app = FastAPI(title="Bourdain Brief", lifespan=lifespan)

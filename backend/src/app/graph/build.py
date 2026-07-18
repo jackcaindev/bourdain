@@ -2,7 +2,8 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+from uuid import UUID
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -12,6 +13,8 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send, interrupt
 
 from app.config import get_settings
+from app.db.categories import mark_categories_selected
+from app.db.trips import update_trip_status
 from app.graph.city_profile_node import city_profile_node
 from app.graph.itinerary import assemble_itinerary
 from app.graph.reduce_graded_candidates import reduce_scored_recommendations
@@ -24,8 +27,11 @@ from app.services.vector_store import close_shared_pool
 
 class _ResearchInput(TypedDict):
     category: Category
+    trip_id: UUID
     city_slug: str
     destination: str
+    location_bias: tuple[float, float]
+    trigger_reason: Literal["initial", "supervisor_replan"]
 
 
 def _checkpoint_serializer() -> JsonPlusSerializer:
@@ -37,6 +43,7 @@ def _checkpoint_serializer() -> JsonPlusSerializer:
                 "Category",
                 "GradedCandidate",
                 "ItineraryDay",
+                "ItinerarySlot",
                 "ScoredRecommendation",
             )
         ]
@@ -48,24 +55,37 @@ async def _research_category_adapter(
 ) -> dict[str, Any]:
     return await research_category(
         state["category"],
+        trip_id=state["trip_id"],
+        trigger_reason=state["trigger_reason"],
         city_slug=state["city_slug"],
         city_name=state["destination"],
+        location_bias=state["location_bias"],
     )
 
 
-def _category_select(state: BriefState) -> dict[str, list[Category]]:
+async def _category_select(state: BriefState) -> dict[str, list[Category]]:
     selected_names = interrupt(CategoryListPayload(categories=state["categories"]))
     if not isinstance(selected_names, list) or not all(
         isinstance(name, str) for name in selected_names
     ):
         raise ValueError("HITL resume value must be a list of category names")
-    return {
-        "selected_categories": [
-            category
-            for category in state["categories"]
-            if category.name in selected_names
-        ]
-    }
+    selected_categories = [
+        category
+        for category in state["categories"]
+        if category.name in selected_names
+    ]
+    category_ids: list[UUID] = []
+    for category in selected_categories:
+        if category.id is None:
+            raise ValueError(
+                f"Selected category {category.name!r} has no persisted id"
+            )
+        category_ids.append(category.id)
+    await mark_categories_selected(
+        trip_id=state["trip_id"], category_ids=category_ids
+    )
+    await update_trip_status(state["trip_id"], "researching")
+    return {"selected_categories": selected_categories}
 
 
 def _dispatch_initial_research(state: BriefState) -> list[Send]:
@@ -74,8 +94,14 @@ def _dispatch_initial_research(state: BriefState) -> list[Send]:
             "research_category",
             {
                 "category": category,
+                "trip_id": state["trip_id"],
                 "city_slug": state["city_slug"],
                 "destination": state["destination"],
+                "location_bias": (
+                    state["destination_lat"],
+                    state["destination_lng"],
+                ),
+                "trigger_reason": "initial",
             },
         )
         for category in state["selected_categories"] or []
@@ -89,8 +115,14 @@ def _route_after_replan(state: BriefState) -> list[Send] | str:
                 "research_category",
                 {
                     "category": category,
+                    "trip_id": state["trip_id"],
                     "city_slug": state["city_slug"],
                     "destination": state["destination"],
+                    "location_bias": (
+                        state["destination_lat"],
+                        state["destination_lng"],
+                    ),
+                    "trigger_reason": "supervisor_replan",
                 },
             )
             for category in state["replan_categories"]
