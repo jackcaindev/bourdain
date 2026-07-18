@@ -22,6 +22,7 @@ from app.api.routes import (
     confirm_persisted_itinerary_day,
     further_research,
     get_brief_state,
+    get_category_recommendations,
     get_persisted_itinerary,
     resume_brief,
     swap_persisted_itinerary_slot,
@@ -680,6 +681,67 @@ class PersistedItineraryRouteTests(IsolatedAsyncioTestCase):
                     with self.assertRaises(HTTPException) as raised:
                         await further_research(trip_id, uuid4())
                 self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_category_recommendations_rejects_unknown_or_mismatched_category(self):
+        trip_id = uuid4()
+        for category in (None, SimpleNamespace(trip_id=uuid4())):
+            with self.subTest(category=category):
+                with patch(
+                    "app.api.routes.get_category_by_id",
+                    new=AsyncMock(return_value=category),
+                ):
+                    with self.assertRaises(HTTPException) as raised:
+                        await get_category_recommendations(trip_id, uuid4())
+                self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_category_recommendations_returns_expected_list_shape(self):
+        trip_id = uuid4()
+        category_id = uuid4()
+        category = SimpleNamespace(trip_id=trip_id)
+        expected = [
+            PersistedRecommendationView(
+                id=uuid4(),
+                name="Cafe Local",
+                description="Evidence-backed neighborhood cafe.",
+                category_name="Breakfast",
+                bourdain_score=5,
+                scoring_rationale="Strong local fit.",
+                formatted_address="1 Test Street",
+                lat=40.1,
+                lng=-73.9,
+                google_types=["cafe"],
+            )
+        ]
+        with (
+            patch(
+                "app.api.routes.get_category_by_id",
+                new=AsyncMock(return_value=category),
+            ),
+            patch(
+                "app.api.routes.get_recommendations_by_category",
+                new=AsyncMock(return_value=expected),
+            ) as get_recommendations,
+        ):
+            response = await get_category_recommendations(trip_id, category_id)
+
+        self.assertEqual(response, expected)
+        self.assertEqual(
+            response[0].model_dump(mode="json"),
+            {
+                "id": str(expected[0].id),
+                "slot_id": None,
+                "name": "Cafe Local",
+                "description": "Evidence-backed neighborhood cafe.",
+                "category_name": "Breakfast",
+                "bourdain_score": 5,
+                "scoring_rationale": "Strong local fit.",
+                "formatted_address": "1 Test Street",
+                "lat": 40.1,
+                "lng": -73.9,
+                "google_types": ["cafe"],
+            },
+        )
+        get_recommendations.assert_awaited_once_with(trip_id, category_id)
 
     async def test_further_research_uses_persisted_trip_coordinates(self):
         trip_id = uuid4()

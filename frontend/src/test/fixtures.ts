@@ -1,4 +1,9 @@
-import type { Category, ItineraryDay, ScoredRecommendation } from '../lib/types'
+import type {
+  Category,
+  PersistedItineraryDay,
+  PersistedRecommendationView,
+  ScoredRecommendation,
+} from '../lib/types'
 
 export const category: Category = {
   id: '00000000-0000-0000-0000-000000000010',
@@ -44,12 +49,31 @@ export const marketRecommendation: ScoredRecommendation = {
   description: 'An evening market of independent food stalls.',
 }
 
-export const itineraryDay: ItineraryDay = {
+export const persistedRecommendation: PersistedRecommendationView = {
+  id: 'rec-1',
+  slot_id: 'slot-1',
+  name: 'Cafe Local',
+  description: 'A neighborhood cafe.',
+  category_name: 'Food',
+  bourdain_score: 5,
+  scoring_rationale: 'Distinctly rooted in the neighborhood.',
+  formatted_address: 'Cafe Local, Centro, Porto',
+  lat: 41.1579,
+  lng: -8.6291,
+  google_types: ['cafe'],
+}
+
+export const itineraryDay: PersistedItineraryDay = {
   day_number: 1,
-  neighborhood_focus: 'Centro',
+  status: 'draft',
   slots: [{
     time_block: 'morning',
-    activity: { ...recommendation, id: 'rec-2', name: 'Old Market' },
-    meals: [recommendation],
+    activity: {
+      ...persistedRecommendation,
+      id: 'rec-2',
+      slot_id: 'slot-2',
+      name: 'Old Market',
+    },
+    meals: [persistedRecommendation],
   }],
 }

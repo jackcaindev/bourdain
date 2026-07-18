@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type {
   Category,
-  ItineraryDay,
   ScoredRecommendation,
   SSEEvent,
   TimeBlock,
@@ -22,7 +21,6 @@ type BriefStore = {
   selectedCategories: string[]
   recommendations: ScoredRecommendation[]
   venueSelectionReady: boolean
-  itineraryDays: ItineraryDay[]
   progressEvents: ProgressEntry[]
   streamError: string | null
   setSessionId: (id: string) => void
@@ -35,7 +33,6 @@ type BriefStore = {
   setRecommendations: (recommendations: ScoredRecommendation[]) => void
   appendRecommendations: (recommendations: ScoredRecommendation[]) => void
   setVenueSelectionReady: (ready: boolean) => void
-  setItineraryDays: (days: ItineraryDay[]) => void
   addProgressEvent: (event: SSEEvent) => void
   setStreamError: (error: string | null) => void
   reset: () => void
@@ -51,7 +48,6 @@ const initialState = {
   selectedCategories: [],
   recommendations: [],
   venueSelectionReady: false,
-  itineraryDays: [],
   progressEvents: [],
   streamError: null,
 }
@@ -78,7 +74,6 @@ export const useBriefStore = create<BriefStore>((set) => ({
       ),
     })),
   setVenueSelectionReady: (venueSelectionReady) => set({ venueSelectionReady }),
-  setItineraryDays: (itineraryDays) => set({ itineraryDays }),
   addProgressEvent: (event) =>
     set((state) => ({
       progressEvents: [

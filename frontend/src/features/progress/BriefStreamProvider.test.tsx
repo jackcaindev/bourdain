@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BriefEventStreamCallbacks } from '../../lib/sse'
 import { useBriefStore } from '../../store'
-import { category, itineraryDay, recommendation } from '../../test/fixtures'
+import { category, recommendation } from '../../test/fixtures'
 import { BriefStreamProvider } from './BriefStreamProvider'
 
 const mocks = vi.hoisted(() => ({
@@ -164,7 +164,7 @@ describe('BriefStreamProvider', () => {
     expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/select')
   })
 
-  it('stores the itinerary, navigates, and closes on assembly completion', () => {
+  it('navigates and closes on assembly completion', () => {
     openSession()
 
     act(() => {
@@ -172,11 +172,10 @@ describe('BriefStreamProvider', () => {
         event_type: 'node_complete',
         node_name: 'assemble_itinerary',
         message: 'Ready.',
-        payload: { days: [itineraryDay] },
+        payload: null,
       })
     })
 
-    expect(useBriefStore.getState().itineraryDays).toEqual([itineraryDay])
     expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/itinerary')
     expect(mocks.close).toHaveBeenCalledOnce()
   })

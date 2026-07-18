@@ -5,7 +5,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
-import type { ScoredRecommendation } from '../../lib/types'
+import type { PersistedRecommendationView } from '../../lib/types'
 
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
@@ -26,7 +26,7 @@ function FitBounds({ coordinates }: { coordinates: LatLngTuple[] }) {
 export function ItineraryMap({
   recommendations,
 }: {
-  recommendations: ScoredRecommendation[]
+  recommendations: PersistedRecommendationView[]
 }) {
   const pinnedRecommendations = recommendations.filter(
     (recommendation) => recommendation.lat !== null && recommendation.lng !== null,
@@ -56,7 +56,7 @@ export function ItineraryMap({
           <Popup>
             <strong>{recommendation.name}</strong>
             <br />
-            {recommendation.category}
+            {recommendation.category_name}
           </Popup>
         </Marker>
       ))}

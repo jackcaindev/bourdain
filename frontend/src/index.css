@@ -598,6 +598,29 @@ a {
   font-weight: 400;
 }
 
+.itinerary-day__confirm {
+  margin-top: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.itinerary-day__confirm:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.itinerary-day__header > .itinerary-day__status {
+  margin-top: 1.5rem;
+  color: var(--color-ochre);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
 .recommendation-block {
   display: grid;
   grid-template-columns: 9rem 1fr;

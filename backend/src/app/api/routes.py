@@ -21,6 +21,7 @@ from app.models.schemas import (
     ItineraryPayload,
     PersistedItineraryDay,
     PersistedItineraryResponse,
+    PersistedRecommendationView,
     ScoredRecommendation,
     SSEEvent,
     TimeBlock,
@@ -39,7 +40,10 @@ from app.db.itineraries import (
     update_itinerary_slot_recommendation,
     update_itinerary_status,
 )
-from app.db.recommendations import get_recommendation_by_id
+from app.db.recommendations import (
+    get_recommendation_by_id,
+    get_recommendations_by_category,
+)
 from app.db.trips import (
     create_trip,
     get_trip_by_id,
@@ -549,6 +553,18 @@ async def swap_persisted_itinerary_slot(
     return await update_itinerary_slot_recommendation(
         slot_id, req.recommendation_id
     )
+
+
+@router.get(
+    "/trips/{trip_id}/categories/{category_id}/recommendations",
+    response_model=list[PersistedRecommendationView],
+)
+async def get_category_recommendations(trip_id: UUID, category_id: UUID):
+    category_record = await get_category_by_id(category_id)
+    if category_record is None or category_record.trip_id != trip_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    return await get_recommendations_by_category(trip_id, category_id)
 
 
 @router.post(

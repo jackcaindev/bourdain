@@ -52,7 +52,6 @@ describe('BriefRecoveryGate', () => {
       selectedCategories: ['Food'],
       recommendations: [recommendation],
       venueSelectionReady: true,
-      itineraryDays: [],
     })
   })
 

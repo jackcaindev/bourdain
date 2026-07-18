@@ -1,13 +1,41 @@
-import type { ItineraryDay as ItineraryDayType } from '../../lib/types'
+import { useState } from 'react'
+import type { PersistedItineraryDay } from '../../lib/types'
 import { RecommendationBlock } from './RecommendationBlock'
 
-export function ItineraryDay({ day }: { day: ItineraryDayType }) {
+type ItineraryDayProps = {
+  day: PersistedItineraryDay
+  onConfirm: () => Promise<void>
+}
+
+export function ItineraryDay({ day, onConfirm }: ItineraryDayProps) {
+  const [isConfirming, setIsConfirming] = useState(false)
+
+  async function handleConfirm() {
+    setIsConfirming(true)
+    try {
+      await onConfirm()
+    } finally {
+      setIsConfirming(false)
+    }
+  }
+
   return (
     <section className="itinerary-day">
       <header className="itinerary-day__header">
         <p>DAY</p>
         <span>{String(day.day_number).padStart(2, '0')}</span>
-        {day.neighborhood_focus && <h2>{day.neighborhood_focus}</h2>}
+        {day.status === 'draft' ? (
+          <button
+            className="text-link itinerary-day__confirm"
+            type="button"
+            disabled={isConfirming}
+            onClick={handleConfirm}
+          >
+            {isConfirming ? 'CONFIRMING…' : 'CONFIRM THIS DAY'}
+          </button>
+        ) : (
+          <p className="itinerary-day__status">CONFIRMED</p>
+        )}
       </header>
       <div className="itinerary-day__entries">
         {day.slots.flatMap((slot) => {

@@ -185,7 +185,7 @@ class ItineraryDay(BaseModel):
 
 class PersistedRecommendationView(BaseModel):
     id: UUID
-    slot_id: UUID
+    slot_id: UUID | None = None
     name: str
     description: str
     category_name: str

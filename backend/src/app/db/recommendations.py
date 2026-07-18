@@ -8,6 +8,7 @@ from uuid import UUID
 import asyncpg
 
 from app.models.domain import RecommendationRecord
+from app.models.schemas import PersistedRecommendationView
 from app.services.vector_store import VectorStoreError, get_shared_pool
 
 
@@ -79,3 +80,60 @@ async def get_recommendation_by_id(
     except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
         raise RecommendationError("Failed to read recommendation.") from exc
     return RecommendationRecord.model_validate(dict(row)) if row is not None else None
+
+
+async def get_recommendations_by_category(
+    trip_id: UUID, category_id: UUID
+) -> list[PersistedRecommendationView]:
+    try:
+        pool = await get_shared_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                """
+                SELECT
+                    r.id,
+                    r.bourdain_score,
+                    r.scoring_rationale,
+                    c.name AS category_name,
+                    p.name,
+                    p.formatted_address,
+                    p.lat,
+                    p.lng,
+                    p.google_types,
+                    evidence.raw_content AS description
+                FROM recommendations r
+                LEFT JOIN categories c ON c.id = r.category_id
+                LEFT JOIN places p ON p.id = r.place_id
+                LEFT JOIN LATERAL (
+                    SELECT e.raw_content
+                    FROM evidence e
+                    WHERE e.place_id = r.place_id
+                      AND e.research_run_id = r.research_run_id
+                      AND e.source_type IN ('vector_store', 'web_search')
+                    ORDER BY e.retrieved_at DESC, e.id DESC
+                    LIMIT 1
+                ) evidence ON true
+                WHERE r.trip_id = $1 AND r.category_id = $2
+                ORDER BY r.bourdain_score DESC
+                """,
+                trip_id,
+                category_id,
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
+        raise RecommendationError("Failed to read recommendations by category.") from exc
+
+    return [
+        PersistedRecommendationView(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"] or "",
+            category_name=row["category_name"],
+            bourdain_score=row["bourdain_score"],
+            scoring_rationale=row["scoring_rationale"],
+            formatted_address=row["formatted_address"],
+            lat=row["lat"],
+            lng=row["lng"],
+            google_types=row["google_types"],
+        )
+        for row in rows
+    ]

@@ -223,9 +223,3 @@ export function isCategoryListPayload(
 ): payload is CategoryListPayload {
   return payload !== null && 'categories' in payload
 }
-
-export function isItineraryPayload(
-  payload: SSEPayload | null,
-): payload is ItineraryPayload {
-  return payload !== null && 'days' in payload
-}

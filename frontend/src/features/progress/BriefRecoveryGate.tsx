@@ -20,7 +20,6 @@ export function BriefRecoveryGate() {
   const setVenueSelectionReady = useBriefStore(
     (state) => state.setVenueSelectionReady,
   )
-  const setItineraryDays = useBriefStore((state) => state.setItineraryDays)
   const needsRecovery = Boolean(
     urlSessionId && urlSessionId !== storeSessionId,
   )
@@ -49,7 +48,6 @@ export function BriefRecoveryGate() {
         setVenueSelectionReady(
           state.phase === 'venue_select' || state.phase === 'itinerary',
         )
-        setItineraryDays(state.itinerary_days ?? [])
         setStatus('ready')
       })
       .catch(() => {
@@ -61,7 +59,6 @@ export function BriefRecoveryGate() {
     }
   }, [
     setAvailableCategories,
-    setItineraryDays,
     setRecommendations,
     setVenueSelectionReady,
     setSelectedCategories,

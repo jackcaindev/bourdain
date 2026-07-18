@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { category, recommendation, itineraryDay } from './test/fixtures'
+import { category, recommendation } from './test/fixtures'
 import type { SSEEvent } from './lib/types'
 import { useBriefStore } from './store'
 
@@ -23,7 +23,6 @@ describe('brief store', () => {
     store.setSelectedCategories(['Food markets'])
     store.setRecommendations([recommendation])
     store.setVenueSelectionReady(true)
-    store.setItineraryDays([itineraryDay])
     store.addProgressEvent(progressEvent)
     store.setStreamError('Stream disconnected')
 
@@ -37,7 +36,6 @@ describe('brief store', () => {
       selectedCategories: ['Food markets'],
       recommendations: [recommendation],
       venueSelectionReady: true,
-      itineraryDays: [itineraryDay],
       progressEvents: [
         { event: progressEvent, receivedAt: expect.any(String) },
       ],
@@ -55,7 +53,6 @@ describe('brief store', () => {
       selectedCategories: [],
       recommendations: [],
       venueSelectionReady: false,
-      itineraryDays: [],
       progressEvents: [],
       streamError: null,
     })

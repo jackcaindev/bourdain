@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router'
 import {
   isCategoryListPayload,
   isHitlPayload,
-  isItineraryPayload,
 } from '../../lib/types'
 import { useBriefStore } from '../../store'
 import { useBriefStream } from './useBriefStream'
@@ -22,7 +21,6 @@ export function BriefStreamProvider() {
   const setVenueSelectionReady = useBriefStore(
     (state) => state.setVenueSelectionReady,
   )
-  const setItineraryDays = useBriefStore((state) => state.setItineraryDays)
   const setStreamError = useBriefStore((state) => state.setStreamError)
   const selectionNavigationSession = useRef<string | null>(null)
 
@@ -69,10 +67,8 @@ export function BriefStreamProvider() {
 
       if (
         event.event_type === 'node_complete' &&
-        event.node_name === 'assemble_itinerary' &&
-        isItineraryPayload(event.payload)
+        event.node_name === 'assemble_itinerary'
       ) {
-        setItineraryDays(event.payload.days)
         if (sessionId) {
           navigate(`/brief/${encodeURIComponent(sessionId)}/itinerary`)
         }
