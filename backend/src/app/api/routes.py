@@ -3,6 +3,7 @@ import asyncio
 import time
 import logging
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
@@ -18,14 +19,31 @@ from app.models.schemas import (
     HitlPayload,
     ItineraryDay,
     ItineraryPayload,
+    PersistedItineraryDay,
+    PersistedItineraryResponse,
     ScoredRecommendation,
     SSEEvent,
     TimeBlock,
 )
+from app.models.domain import ItinerarySlotRecord
 from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 
-from app.db.trips import create_trip
+from app.db.categories import get_category_by_id
+from app.db.itineraries import (
+    all_days_confirmed,
+    confirm_itinerary_day,
+    get_itinerary_day_by_trip_and_day_number,
+    get_itinerary_with_details,
+    get_slot_trip_and_category,
+    update_itinerary_slot_recommendation,
+    update_itinerary_status,
+)
+from app.db.recommendations import get_recommendation_by_id
+from app.db.trips import create_trip, get_trip_by_id, update_trip_status
+from app.graph.city_profile_node import _to_category
+from app.graph.research import research_category
+from app.services.city_profiles import normalize_city_slug
 from app.services.places import PlaceMatch, resolve_city
 
 
@@ -66,6 +84,10 @@ class ResumeRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     session_id: str
+
+
+class SwapItinerarySlotRequest(BaseModel):
+    recommendation_id: UUID
 
 
 class CityAmbiguityResponse(BaseModel):
@@ -437,6 +459,100 @@ async def resume_brief(session_id: str, req: ResumeRequest):
         req.user_selections,
     )
     return SessionResponse(session_id=session_id)
+
+
+@router.get(
+    "/trips/{trip_id}/itinerary",
+    response_model=PersistedItineraryResponse,
+)
+async def get_persisted_itinerary(trip_id: UUID):
+    itinerary = await get_itinerary_with_details(trip_id)
+    if itinerary is None:
+        raise HTTPException(status_code=404, detail="Itinerary not found")
+    return itinerary
+
+
+@router.patch(
+    "/trips/{trip_id}/itinerary/days/{day_number}/confirm",
+    response_model=PersistedItineraryDay,
+)
+async def confirm_persisted_itinerary_day(trip_id: UUID, day_number: int):
+    day = await get_itinerary_day_by_trip_and_day_number(trip_id, day_number)
+    if day is None:
+        raise HTTPException(status_code=404, detail="Itinerary day not found")
+
+    await confirm_itinerary_day(day.id)
+    if await all_days_confirmed(day.itinerary_id):
+        await update_itinerary_status(day.itinerary_id, "confirmed")
+        await update_trip_status(trip_id, "confirmed")
+
+    itinerary = await get_itinerary_with_details(trip_id)
+    if itinerary is None:
+        raise RuntimeError("Confirmed itinerary disappeared during refresh")
+    return next(
+        itinerary_day
+        for itinerary_day in itinerary.days
+        if itinerary_day.day_number == day_number
+    )
+
+
+@router.patch(
+    "/trips/{trip_id}/itinerary/slots/{slot_id}",
+    response_model=ItinerarySlotRecord,
+)
+async def swap_persisted_itinerary_slot(
+    trip_id: UUID, slot_id: UUID, req: SwapItinerarySlotRequest
+):
+    ownership = await get_slot_trip_and_category(slot_id)
+    if ownership is None:
+        raise HTTPException(status_code=404, detail="Itinerary slot not found")
+    slot_trip_id, current_category_id = ownership
+    if slot_trip_id != trip_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Itinerary slot belongs to a different trip",
+        )
+
+    recommendation = await get_recommendation_by_id(req.recommendation_id)
+    if recommendation is None:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    if recommendation.category_id != current_category_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Recommendation must belong to the slot's current category",
+        )
+    if recommendation.trip_id != trip_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Recommendation must belong to the same trip as the slot",
+        )
+
+    return await update_itinerary_slot_recommendation(
+        slot_id, req.recommendation_id
+    )
+
+
+@router.post(
+    "/trips/{trip_id}/categories/{category_id}/further-research",
+    response_model=list[ScoredRecommendation],
+)
+async def further_research(trip_id: UUID, category_id: UUID):
+    category_record = await get_category_by_id(category_id)
+    if category_record is None or category_record.trip_id != trip_id:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    trip = await get_trip_by_id(trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    result = await research_category(
+        _to_category(category_record),
+        city_slug=normalize_city_slug(trip.destination_formatted),
+        city_name=trip.destination_formatted,
+        trip_id=trip_id,
+        trigger_reason="on_demand",
+        location_bias=(trip.destination_lat, trip.destination_lng),
+    )
+    return result["scored_recommendations"]
 
 
 @router.get("/health")

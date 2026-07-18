@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -10,21 +12,31 @@ from app.api.routes import (
     BriefRequest,
     ResumeRequest,
     SessionEntry,
+    SwapItinerarySlotRequest,
     _event_generator,
     _hitl_event_from_snapshot,
     _resume_graph,
     _run_graph,
     _sessions,
     _to_sse_event,
+    confirm_persisted_itinerary_day,
+    further_research,
     get_brief_state,
+    get_persisted_itinerary,
     resume_brief,
+    swap_persisted_itinerary_slot,
     start_brief,
 )
+from app.models.domain import ItineraryDayRecord, ItinerarySlotRecord, RecommendationRecord
 from app.models.schemas import (
     Category,
     ItineraryDay,
     ItineraryPayload,
     ItinerarySlot,
+    PersistedItineraryDay,
+    PersistedItineraryResponse,
+    PersistedItinerarySlot,
+    PersistedRecommendationView,
     ScoredRecommendation,
 )
 from app.services.places import CityResolution, PlaceMatch
@@ -50,6 +62,40 @@ def _recommendation(
         locally_owned_signal="Family operated.",
         passed_guardrail=True,
         guardrail_note=None,
+    )
+
+
+def _persisted_itinerary(trip_id, *, status="draft"):
+    recommendation_id = uuid4()
+    return PersistedItineraryResponse(
+        trip_id=trip_id,
+        status=status,
+        days=[
+            PersistedItineraryDay(
+                day_number=1,
+                status="confirmed" if status == "confirmed" else "draft",
+                slots=[
+                    PersistedItinerarySlot(
+                        time_block="morning",
+                        meals=[
+                            PersistedRecommendationView(
+                                id=recommendation_id,
+                                slot_id=uuid4(),
+                                name="Cafe Local",
+                                description="Evidence-backed neighborhood cafe.",
+                                category_name="Breakfast",
+                                bourdain_score=5,
+                                scoring_rationale="Strong local fit.",
+                                formatted_address="1 Test Street",
+                                lat=40.1,
+                                lng=-73.9,
+                                google_types=["cafe"],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
     )
 
 
@@ -419,6 +465,249 @@ class BriefStateTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(response.phase, "itinerary")
         self.assertEqual(response.itinerary_days, itinerary)
+
+
+class PersistedItineraryRouteTests(IsolatedAsyncioTestCase):
+    async def test_get_returns_404_without_persisted_itinerary(self):
+        with patch(
+            "app.api.routes.get_itinerary_with_details",
+            new=AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await get_persisted_itinerary(uuid4())
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_get_returns_nested_evidence_description(self):
+        trip_id = uuid4()
+        expected = _persisted_itinerary(trip_id)
+        with patch(
+            "app.api.routes.get_itinerary_with_details",
+            new=AsyncMock(return_value=expected),
+        ):
+            response = await get_persisted_itinerary(trip_id)
+
+        self.assertEqual(
+            response.days[0].slots[0].meals[0].description,
+            "Evidence-backed neighborhood cafe.",
+        )
+
+    async def test_confirm_unknown_day_returns_404(self):
+        with patch(
+            "app.api.routes.get_itinerary_day_by_trip_and_day_number",
+            new=AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await confirm_persisted_itinerary_day(uuid4(), 99)
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_confirm_last_day_promotes_itinerary_and_trip(self):
+        trip_id = uuid4()
+        itinerary_id = uuid4()
+        day = ItineraryDayRecord(
+            id=uuid4(),
+            itinerary_id=itinerary_id,
+            day_number=1,
+            status="draft",
+        )
+        refreshed = _persisted_itinerary(trip_id, status="confirmed")
+        with (
+            patch(
+                "app.api.routes.get_itinerary_day_by_trip_and_day_number",
+                new=AsyncMock(return_value=day),
+            ),
+            patch("app.api.routes.confirm_itinerary_day", new_callable=AsyncMock),
+            patch(
+                "app.api.routes.all_days_confirmed",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "app.api.routes.update_itinerary_status", new_callable=AsyncMock
+            ) as update_itinerary_status,
+            patch("app.api.routes.update_trip_status", new_callable=AsyncMock) as update_trip_status,
+            patch(
+                "app.api.routes.get_itinerary_with_details",
+                new=AsyncMock(return_value=refreshed),
+            ),
+        ):
+            response = await confirm_persisted_itinerary_day(trip_id, 1)
+
+        update_itinerary_status.assert_awaited_once_with(itinerary_id, "confirmed")
+        update_trip_status.assert_awaited_once_with(trip_id, "confirmed")
+        self.assertEqual(response.status, "confirmed")
+
+    async def test_swap_unknown_slot_returns_404(self):
+        with patch(
+            "app.api.routes.get_slot_trip_and_category",
+            new=AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await swap_persisted_itinerary_slot(
+                    uuid4(), uuid4(), SwapItinerarySlotRequest(recommendation_id=uuid4())
+                )
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_swap_rejects_category_mismatch(self):
+        trip_id = uuid4()
+        recommendation = self._recommendation_record(trip_id=trip_id)
+        with (
+            patch(
+                "app.api.routes.get_slot_trip_and_category",
+                new=AsyncMock(return_value=(trip_id, uuid4())),
+            ),
+            patch(
+                "app.api.routes.get_recommendation_by_id",
+                new=AsyncMock(return_value=recommendation),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await swap_persisted_itinerary_slot(
+                    trip_id,
+                    uuid4(),
+                    SwapItinerarySlotRequest(recommendation_id=recommendation.id),
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("category", raised.exception.detail)
+
+    async def test_swap_rejects_recommendation_trip_mismatch(self):
+        path_trip_id = uuid4()
+        category_id = uuid4()
+        recommendation = self._recommendation_record(
+            trip_id=uuid4(), category_id=category_id
+        )
+        with (
+            patch(
+                "app.api.routes.get_slot_trip_and_category",
+                new=AsyncMock(return_value=(path_trip_id, category_id)),
+            ),
+            patch(
+                "app.api.routes.get_recommendation_by_id",
+                new=AsyncMock(return_value=recommendation),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await swap_persisted_itinerary_slot(
+                    path_trip_id,
+                    uuid4(),
+                    SwapItinerarySlotRequest(recommendation_id=recommendation.id),
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("same trip", raised.exception.detail)
+
+    async def test_swap_updates_and_returns_new_occupant(self):
+        trip_id = uuid4()
+        category_id = uuid4()
+        slot_id = uuid4()
+        recommendation = self._recommendation_record(
+            trip_id=trip_id, category_id=category_id
+        )
+        updated = ItinerarySlotRecord(
+            id=slot_id,
+            itinerary_day_id=uuid4(),
+            time_block="night",
+            slot_role="meal",
+            recommendation_id=recommendation.id,
+        )
+        with (
+            patch(
+                "app.api.routes.get_slot_trip_and_category",
+                new=AsyncMock(return_value=(trip_id, category_id)),
+            ),
+            patch(
+                "app.api.routes.get_recommendation_by_id",
+                new=AsyncMock(return_value=recommendation),
+            ),
+            patch(
+                "app.api.routes.update_itinerary_slot_recommendation",
+                new=AsyncMock(return_value=updated),
+            ) as update,
+        ):
+            response = await swap_persisted_itinerary_slot(
+                trip_id,
+                slot_id,
+                SwapItinerarySlotRequest(recommendation_id=recommendation.id),
+            )
+
+        update.assert_awaited_once_with(slot_id, recommendation.id)
+        self.assertEqual(response.recommendation_id, recommendation.id)
+
+    async def test_further_research_rejects_unknown_or_mismatched_category(self):
+        trip_id = uuid4()
+        for category in (None, SimpleNamespace(trip_id=uuid4())):
+            with self.subTest(category=category):
+                with patch(
+                    "app.api.routes.get_category_by_id",
+                    new=AsyncMock(return_value=category),
+                ):
+                    with self.assertRaises(HTTPException) as raised:
+                        await further_research(trip_id, uuid4())
+                self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_further_research_uses_persisted_trip_coordinates(self):
+        trip_id = uuid4()
+        category_id = uuid4()
+        category = SimpleNamespace(
+            id=category_id,
+            trip_id=trip_id,
+            name="Night markets",
+            type="food",
+            source_drivers=["Dinner"],
+            estimated_duration_minutes=90,
+            neighborhood_scope="Old Town",
+            eligible_blocks=["night"],
+            status="selected",
+        )
+        trip = SimpleNamespace(
+            destination_formatted="Porto, Portugal",
+            destination_lat=41.1579,
+            destination_lng=-8.6291,
+        )
+        recommendation = _recommendation()
+        with (
+            patch(
+                "app.api.routes.get_category_by_id",
+                new=AsyncMock(return_value=category),
+            ),
+            patch(
+                "app.api.routes.get_trip_by_id", new=AsyncMock(return_value=trip)
+            ),
+            patch(
+                "app.api.routes.research_category",
+                new=AsyncMock(return_value={"scored_recommendations": [recommendation]}),
+            ) as research,
+        ):
+            response = await further_research(trip_id, category_id)
+
+        self.assertEqual(response, [recommendation])
+        research.assert_awaited_once()
+        self.assertEqual(research.await_args.kwargs["trigger_reason"], "on_demand")
+        self.assertEqual(
+            research.await_args.kwargs["location_bias"], (41.1579, -8.6291)
+        )
+
+    @staticmethod
+    def _recommendation_record(*, trip_id, category_id=None):
+        return RecommendationRecord(
+            id=uuid4(),
+            trip_id=trip_id,
+            category_id=category_id or uuid4(),
+            research_run_id=uuid4(),
+            place_id=uuid4(),
+            relevance_score=0.9,
+            authenticity_signal="Local institution",
+            confidence="high",
+            needs_fallback=False,
+            bourdain_score=5,
+            scoring_rationale="Strong fit",
+            locally_owned_signal=None,
+            passed_guardrail=True,
+            guardrail_note=None,
+            created_at=datetime.now(UTC),
+        )
 
 
 async def _empty_events():

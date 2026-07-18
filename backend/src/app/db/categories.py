@@ -70,6 +70,18 @@ async def get_categories_by_trip_id(trip_id: UUID) -> list[CategoryRecord]:
     return [CategoryRecord.model_validate(dict(row)) for row in rows]
 
 
+async def get_category_by_id(category_id: UUID) -> CategoryRecord | None:
+    try:
+        pool = await get_shared_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT * FROM categories WHERE id = $1", category_id
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, VectorStoreError) as exc:
+        raise CategoryError("Failed to read category.") from exc
+    return CategoryRecord.model_validate(dict(row)) if row is not None else None
+
+
 async def mark_categories_selected(
     trip_id: UUID, category_ids: list[UUID]
 ) -> None:

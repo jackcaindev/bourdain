@@ -19,6 +19,7 @@ export type Candidate = {
   description: string
   lat: number | null
   lng: number | null
+  db_recommendation_id: string | null
   place_id: string | null
   formatted_address: string | null
   source: 'vector_store' | 'web_search'

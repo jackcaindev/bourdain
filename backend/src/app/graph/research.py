@@ -310,8 +310,9 @@ async def _persist_final_recommendations(
     trip_id: UUID,
     category: Category,
     research_run_id: UUID,
-) -> None:
+) -> list[ScoredRecommendation]:
     assert category.id is not None
+    persisted_recommendations: list[ScoredRecommendation] = []
     for recommendation in recommendations:
         if recommendation.internal_place_id is None:
             logger.warning(
@@ -322,6 +323,7 @@ async def _persist_final_recommendations(
                     "reason": "missing_internal_place_id",
                 },
             )
+            persisted_recommendations.append(recommendation)
             continue
 
         await create_evidence(
@@ -346,7 +348,7 @@ async def _persist_final_recommendations(
             source_type="places_api",
             raw_content=places_content,
         )
-        await create_recommendation(
+        record = await create_recommendation(
             trip_id=trip_id,
             category_id=category.id,
             research_run_id=research_run_id,
@@ -361,6 +363,12 @@ async def _persist_final_recommendations(
             passed_guardrail=recommendation.passed_guardrail,
             guardrail_note=recommendation.guardrail_note,
         )
+        persisted_recommendations.append(
+            recommendation.model_copy(
+                update={"db_recommendation_id": record.id}
+            )
+        )
+    return persisted_recommendations
 
 
 async def research_category(
@@ -368,7 +376,7 @@ async def research_category(
     city_slug: str,
     city_name: str,
     trip_id: UUID,
-    trigger_reason: Literal["initial", "supervisor_replan"],
+    trigger_reason: Literal["initial", "supervisor_replan", "on_demand"],
     location_bias: tuple[float, float] | None = None,
 ) -> dict[str, list[ScoredRecommendation]]:
     """Retrieve and grade candidates for one Send API category invocation."""
@@ -551,10 +559,16 @@ async def research_category(
         guardrail_node, scoring_result
     )
     all_graded_recommendations = guardrail_result["scored_recommendations"]
+    persisted_recommendations = await _persist_final_recommendations(
+        all_graded_recommendations,
+        trip_id=trip_id,
+        category=category,
+        research_run_id=owning_run_id,
+    )
     scored_recommendations = sorted(
         (
             recommendation
-            for recommendation in all_graded_recommendations
+            for recommendation in persisted_recommendations
             if recommendation.passed_guardrail
         ),
         key=lambda recommendation: (
@@ -562,13 +576,6 @@ async def research_category(
             recommendation.relevance_score,
         ),
         reverse=True,
-    )
-
-    await _persist_final_recommendations(
-        all_graded_recommendations,
-        trip_id=trip_id,
-        category=category,
-        research_run_id=owning_run_id,
     )
 
     web_recommendations = [

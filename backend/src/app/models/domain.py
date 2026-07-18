@@ -142,4 +142,5 @@ class ItinerarySlotRecord(DomainRecord):
     id: UUID
     itinerary_day_id: UUID
     time_block: str
+    slot_role: Literal["activity", "meal"]
     recommendation_id: UUID | None

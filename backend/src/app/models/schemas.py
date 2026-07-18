@@ -80,6 +80,7 @@ class Candidate(BaseModel):
     lat: float | None = None
     lng: float | None = None
     internal_place_id: UUID | None = None
+    db_recommendation_id: UUID | None = None
     place_id: str | None = None
     formatted_address: str | None = None
     google_types: list[str] = Field(default_factory=list)
@@ -180,6 +181,38 @@ class ItineraryDay(BaseModel):
     day_number: int
     slots: list[ItinerarySlot]
     neighborhood_focus: str | None = None
+
+
+class PersistedRecommendationView(BaseModel):
+    id: UUID
+    slot_id: UUID
+    name: str
+    description: str
+    category_name: str
+    bourdain_score: int
+    scoring_rationale: str
+    formatted_address: str
+    lat: float
+    lng: float
+    google_types: list[str]
+
+
+class PersistedItinerarySlot(BaseModel):
+    time_block: TimeBlock
+    activity: PersistedRecommendationView | None = None
+    meals: list[PersistedRecommendationView] = Field(default_factory=list)
+
+
+class PersistedItineraryDay(BaseModel):
+    day_number: int
+    status: Literal["draft", "confirmed"]
+    slots: list[PersistedItinerarySlot]
+
+
+class PersistedItineraryResponse(BaseModel):
+    trip_id: UUID
+    status: Literal["draft", "confirmed"]
+    days: list[PersistedItineraryDay]
 
 
 class CandidatePayload(BaseModel):

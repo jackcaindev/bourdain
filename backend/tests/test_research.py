@@ -9,6 +9,7 @@ from app.graph.research import (
     ResearchCategoryError,
     _extract_venues,
     _grade_candidates,
+    _persist_final_recommendations,
     research_category,
 )
 from app.models.schemas import Candidate, Category, ScoredRecommendation
@@ -188,6 +189,16 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             return SimpleNamespace(id=run_id)
 
         self.create_research_run.side_effect = persisted_run
+        self.db_recommendation_ids_by_place: dict[UUID, UUID] = {}
+
+        def persisted_recommendation(**kwargs):
+            recommendation_id = uuid4()
+            self.db_recommendation_ids_by_place[kwargs["place_id"]] = (
+                recommendation_id
+            )
+            return SimpleNamespace(id=recommendation_id)
+
+        self.create_recommendation.side_effect = persisted_recommendation
         self.addCleanup(verify.stop)
         self.addCleanup(resolve.stop)
         self.addCleanup(scoring.stop)
@@ -235,6 +246,12 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         self.assertEqual(
             result["scored_recommendations"][0].internal_place_id,
             self.place_ids_by_google["place-Cafe"],
+        )
+        self.assertEqual(
+            result["scored_recommendations"][0].db_recommendation_id,
+            self.db_recommendation_ids_by_place[
+                self.place_ids_by_google["place-Cafe"]
+            ],
         )
         self.get_or_create_place.assert_awaited_once_with(
             google_place_id="place-Cafe",
@@ -473,7 +490,18 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
             score_four_low_relevance,
             score_three,
         ]
-        self.assertEqual(result["scored_recommendations"], expected)
+        self.assertEqual(
+            [item.id for item in result["scored_recommendations"]],
+            [item.id for item in expected],
+        )
+        self.assertTrue(
+            all(
+                item.db_recommendation_id
+                == self.db_recommendation_ids_by_place[item.internal_place_id]
+                for item in result["scored_recommendations"]
+                if item.internal_place_id is not None
+            )
+        )
         self.assertNotIn(failed, result["scored_recommendations"])
         failed_persistence = next(
             call
@@ -601,6 +629,22 @@ class ResearchCategoryTests(IsolatedAsyncioTestCase):
         )
         self.create_evidence.assert_not_awaited()
         self.create_recommendation.assert_not_awaited()
+
+    async def test_persistence_returns_exact_created_recommendation_id(self):
+        recommendation = _scored_recommendation("exact-id")
+        created_id = uuid4()
+        self.create_recommendation.side_effect = None
+        self.create_recommendation.return_value = SimpleNamespace(id=created_id)
+
+        persisted = await _persist_final_recommendations(
+            [recommendation],
+            trip_id=self.trip_id,
+            category=self.category,
+            research_run_id=uuid4(),
+        )
+
+        self.assertEqual(persisted[0].db_recommendation_id, created_id)
+        self.assertIsNone(recommendation.db_recommendation_id)
 
     @patch("app.graph.research.run_web_fallback_agent", new_callable=AsyncMock)
     @patch("app.graph.research.call_forced_tool")

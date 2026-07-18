@@ -7,6 +7,7 @@ export const recommendation: ScoredRecommendation = {
   description: 'A neighborhood cafe.',
   lat: 41.1579,
   lng: -8.6291,
+  db_recommendation_id: '00000000-0000-0000-0000-000000000001',
   place_id: 'places/cafe-local',
   formatted_address: 'Cafe Local, Centro, Porto',
   source: 'web_search',

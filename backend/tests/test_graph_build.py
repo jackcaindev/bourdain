@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -187,6 +188,22 @@ class GraphHitlTests(IsolatedAsyncioTestCase):
                 "app.graph.build.update_trip_status",
                 new_callable=AsyncMock,
             ) as update_status,
+            patch(
+                "app.graph.itinerary.create_itinerary",
+                new=AsyncMock(return_value=SimpleNamespace(id=uuid4())),
+            ),
+            patch(
+                "app.graph.itinerary.create_itinerary_day",
+                new=AsyncMock(return_value=SimpleNamespace(id=uuid4())),
+            ),
+            patch(
+                "app.graph.itinerary.upsert_activity_slot",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.graph.itinerary.create_meal_slot",
+                new_callable=AsyncMock,
+            ),
         ):
             graph = compile_graph(InMemorySaver(serde=_checkpoint_serializer()))
             config = {"configurable": {"thread_id": "brief-hitl-test"}}

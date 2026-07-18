@@ -7,6 +7,12 @@ import logging
 from math import asin, cos, radians, sin, sqrt
 from typing import cast
 
+from app.db.itineraries import (
+    create_itinerary,
+    create_itinerary_day,
+    create_meal_slot,
+    upsert_activity_slot,
+)
 from app.graph.state import BriefState
 from app.models.schemas import (
     Category,
@@ -327,7 +333,57 @@ def _neighborhood_focus(day: _DayPlan) -> str | None:
     return leaders[0] if len(leaders) == 1 else None
 
 
-def assemble_itinerary(state: BriefState) -> dict[str, list[ItineraryDay]]:
+async def _persist_assembled_itinerary(
+    state: BriefState, itinerary: list[ItineraryDay]
+) -> None:
+    itinerary_record = await create_itinerary(trip_id=state["trip_id"])
+    for day in itinerary:
+        day_record = await create_itinerary_day(
+            itinerary_id=itinerary_record.id,
+            day_number=day.day_number,
+        )
+        for slot in day.slots:
+            if slot.activity is not None:
+                if slot.activity.db_recommendation_id is None:
+                    logger.warning(
+                        "itinerary_slot_persistence_skipped",
+                        extra={
+                            "day_number": day.day_number,
+                            "time_block": slot.time_block,
+                            "recommendation_id": slot.activity.id,
+                            "slot_role": "activity",
+                            "reason": "missing_db_recommendation_id",
+                        },
+                    )
+                else:
+                    await upsert_activity_slot(
+                        itinerary_day_id=day_record.id,
+                        time_block=slot.time_block,
+                        recommendation_id=slot.activity.db_recommendation_id,
+                    )
+            for meal in slot.meals:
+                if meal.db_recommendation_id is None:
+                    logger.warning(
+                        "itinerary_slot_persistence_skipped",
+                        extra={
+                            "day_number": day.day_number,
+                            "time_block": slot.time_block,
+                            "recommendation_id": meal.id,
+                            "slot_role": "meal",
+                            "reason": "missing_db_recommendation_id",
+                        },
+                    )
+                    continue
+                await create_meal_slot(
+                    itinerary_day_id=day_record.id,
+                    time_block=slot.time_block,
+                    recommendation_id=meal.db_recommendation_id,
+                )
+
+
+async def assemble_itinerary(
+    state: BriefState,
+) -> dict[str, list[ItineraryDay]]:
     """Place one selected occupant per category into geo-aware daily slots."""
 
     trip_blocks = _trip_blocks(state)
@@ -341,9 +397,6 @@ def assemble_itinerary(state: BriefState) -> dict[str, list[ItineraryDay]]:
         )
         for _ in range(state["trip_length_days"])
     ]
-    if not days:
-        return {"itinerary": []}
-
     _place_activities(choices, days, trip_blocks)
     _place_food(
         choices,
@@ -369,4 +422,5 @@ def assemble_itinerary(state: BriefState) -> dict[str, list[ItineraryDay]]:
         )
         for day_index, day in enumerate(days)
     ]
+    await _persist_assembled_itinerary(state, itinerary)
     return {"itinerary": itinerary}
