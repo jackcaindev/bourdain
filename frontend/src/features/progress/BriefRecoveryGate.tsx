@@ -9,6 +9,7 @@ export function BriefRecoveryGate() {
   const { sessionId: urlSessionId } = useParams()
   const storeSessionId = useBriefStore((state) => state.sessionId)
   const setSessionId = useBriefStore((state) => state.setSessionId)
+  const setTripId = useBriefStore((state) => state.setTripId)
   const setAvailableCategories = useBriefStore(
     (state) => state.setAvailableCategories,
   )
@@ -16,6 +17,9 @@ export function BriefRecoveryGate() {
     (state) => state.setSelectedCategories,
   )
   const setRecommendations = useBriefStore((state) => state.setRecommendations)
+  const setVenueSelectionReady = useBriefStore(
+    (state) => state.setVenueSelectionReady,
+  )
   const setItineraryDays = useBriefStore((state) => state.setItineraryDays)
   const needsRecovery = Boolean(
     urlSessionId && urlSessionId !== storeSessionId,
@@ -38,9 +42,13 @@ export function BriefRecoveryGate() {
         if (cancelled) return
 
         setSessionId(state.session_id)
+        if (state.trip_id) setTripId(state.trip_id)
         setAvailableCategories(state.categories ?? [])
         setSelectedCategories(state.selected_categories ?? [])
         setRecommendations(state.recommendations ?? [])
+        setVenueSelectionReady(
+          state.phase === 'venue_select' || state.phase === 'itinerary',
+        )
         setItineraryDays(state.itinerary_days ?? [])
         setStatus('ready')
       })
@@ -55,8 +63,10 @@ export function BriefRecoveryGate() {
     setAvailableCategories,
     setItineraryDays,
     setRecommendations,
+    setVenueSelectionReady,
     setSelectedCategories,
     setSessionId,
+    setTripId,
     storeSessionId,
     urlSessionId,
   ])

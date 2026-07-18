@@ -1,4 +1,16 @@
-import type { ItineraryDay, ScoredRecommendation } from '../lib/types'
+import type { Category, ItineraryDay, ScoredRecommendation } from '../lib/types'
+
+export const category: Category = {
+  id: '00000000-0000-0000-0000-000000000010',
+  name: 'Street Food',
+  rationale: 'The city is best understood at the counter.',
+  type: 'food',
+  source_drivers: ['Lunch'],
+  estimated_duration_minutes: 90,
+  eligible_blocks: ['afternoon'],
+  neighborhood_scope: 'Centro',
+  status: 'candidate',
+}
 
 export const recommendation: ScoredRecommendation = {
   id: 'rec-1',

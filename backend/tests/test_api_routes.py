@@ -136,9 +136,10 @@ class SSEConversionTests(TestCase):
         )
 
         self.assertIsNotNone(event)
-        assert event is not None
+        assert event is not None and event.payload is not None
         self.assertEqual(event.event_type, "node_complete")
-        self.assertIsNone(event.payload)
+        payload = event.payload.model_dump(mode="json")
+        self.assertEqual(payload["recommendations"], [recommendation.model_dump(mode="json")])
         self.assertEqual(event.message, "Got 1 lead(s) worth looking at.")
 
     def test_itinerary_completion_carries_days(self):
@@ -266,14 +267,38 @@ class SSEStreamTests(IsolatedAsyncioTestCase):
 
     async def test_resume_response_uses_path_session_id(self):
         session_id = "resume-session"
+        trip_id = uuid4()
         _sessions[session_id] = SessionEntry()
-        with patch("app.api.routes.asyncio.create_task") as create_task:
+        with (
+            patch(
+                "app.api.routes.get_trip_by_session_id",
+                new=AsyncMock(return_value=SimpleNamespace(id=trip_id)),
+            ),
+            patch("app.api.routes.asyncio.create_task") as create_task,
+        ):
             response = await resume_brief(
                 session_id, ResumeRequest(user_selections=["one"], resume_type="venues")
             )
         create_task.call_args.args[0].close()
 
         self.assertEqual(response.session_id, session_id)
+        self.assertEqual(response.trip_id, trip_id)
+
+    async def test_resume_returns_404_when_session_trip_is_missing(self):
+        session_id = "orphaned-session"
+        _sessions[session_id] = SessionEntry()
+        with patch(
+            "app.api.routes.get_trip_by_session_id",
+            new=AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await resume_brief(
+                    session_id,
+                    ResumeRequest(user_selections=["one"], resume_type="venues"),
+                )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail, "Trip not found")
 
 
 class StartBriefTests(IsolatedAsyncioTestCase):
@@ -281,6 +306,7 @@ class StartBriefTests(IsolatedAsyncioTestCase):
         _sessions.clear()
 
     async def test_resolved_city_creates_trip_before_starting_graph(self):
+        trip_id = uuid4()
         match = PlaceMatch(
             google_place_id="porto-id",
             name="Porto",
@@ -307,6 +333,7 @@ class StartBriefTests(IsolatedAsyncioTestCase):
             patch("app.api.routes.create_trip", new_callable=AsyncMock) as create_trip,
             patch("app.api.routes.asyncio.create_task") as create_task,
         ):
+            create_trip.return_value = SimpleNamespace(id=trip_id)
             response = await start_brief(req)
 
         create_task.call_args.args[0].close()
@@ -325,6 +352,7 @@ class StartBriefTests(IsolatedAsyncioTestCase):
         )
         create_task.assert_called_once()
         self.assertEqual(response.session_id, "porto-session")
+        self.assertEqual(response.trip_id, trip_id)
         self.assertIn("porto-session", _sessions)
 
     async def test_ambiguous_city_returns_candidates_without_starting_graph(self):
@@ -400,13 +428,18 @@ class BriefStateTests(IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.detail, "Session not found")
 
     async def test_category_select_returns_categories(self):
+        trip_id = uuid4()
         categories = [Category(name="Food", rationale="Follow local rituals.")]
         snapshot = SimpleNamespace(
             next=("category_select",),
             tasks=(
                 SimpleNamespace(name="category_select", interrupts=(object(),)),
             ),
-            values={"categories": categories, "selected_categories": None},
+            values={
+                "trip_id": trip_id,
+                "categories": categories,
+                "selected_categories": None,
+            },
         )
         graph = SimpleNamespace(aget_state=AsyncMock(return_value=snapshot))
 
@@ -414,6 +447,7 @@ class BriefStateTests(IsolatedAsyncioTestCase):
             response = await get_brief_state("category-session")
 
         self.assertEqual(response.phase, "category_select")
+        self.assertEqual(response.trip_id, trip_id)
         self.assertEqual(response.categories, categories)
         self.assertIsNone(response.selected_categories)
 

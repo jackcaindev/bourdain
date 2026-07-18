@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { recommendation, itineraryDay } from './test/fixtures'
+import { category, recommendation, itineraryDay } from './test/fixtures'
 import type { SSEEvent } from './lib/types'
 import { useBriefStore } from './store'
 
@@ -15,24 +15,28 @@ describe('brief store', () => {
     }
     const store = useBriefStore.getState()
     store.setSessionId('session')
+    store.setTripId('trip')
+    store.setTripLengthDays(3)
+    store.setTimeBlocks(['morning', 'night'])
     store.setCitySlug('porto')
-    store.setAvailableCategories([
-      { name: 'Food markets', rationale: 'Follow the local appetite.' },
-    ])
+    store.setAvailableCategories([category])
     store.setSelectedCategories(['Food markets'])
     store.setRecommendations([recommendation])
+    store.setVenueSelectionReady(true)
     store.setItineraryDays([itineraryDay])
     store.addProgressEvent(progressEvent)
     store.setStreamError('Stream disconnected')
 
     expect(useBriefStore.getState()).toMatchObject({
       sessionId: 'session',
+      tripId: 'trip',
+      tripLengthDays: 3,
+      timeBlocks: ['morning', 'night'],
       citySlug: 'porto',
-      availableCategories: [
-        { name: 'Food markets', rationale: 'Follow the local appetite.' },
-      ],
+      availableCategories: [category],
       selectedCategories: ['Food markets'],
       recommendations: [recommendation],
+      venueSelectionReady: true,
       itineraryDays: [itineraryDay],
       progressEvents: [
         { event: progressEvent, receivedAt: expect.any(String) },
@@ -43,14 +47,29 @@ describe('brief store', () => {
     useBriefStore.getState().reset()
     expect(useBriefStore.getState()).toMatchObject({
       sessionId: null,
+      tripId: null,
+      tripLengthDays: null,
+      timeBlocks: [],
       citySlug: null,
       availableCategories: [],
       selectedCategories: [],
       recommendations: [],
+      venueSelectionReady: false,
       itineraryDays: [],
       progressEvents: [],
       streamError: null,
     })
+  })
+
+  it('appends recommendations and replaces duplicates by id', () => {
+    useBriefStore.getState().appendRecommendations([recommendation])
+    useBriefStore.getState().appendRecommendations([
+      { ...recommendation, name: 'Updated Cafe' },
+    ])
+
+    expect(useBriefStore.getState().recommendations).toEqual([
+      { ...recommendation, name: 'Updated Cafe' },
+    ])
   })
 
   it('appends progress events in arrival order', () => {

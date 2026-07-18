@@ -40,7 +40,12 @@ from app.db.itineraries import (
     update_itinerary_status,
 )
 from app.db.recommendations import get_recommendation_by_id
-from app.db.trips import create_trip, get_trip_by_id, update_trip_status
+from app.db.trips import (
+    create_trip,
+    get_trip_by_id,
+    get_trip_by_session_id,
+    update_trip_status,
+)
 from app.graph.city_profile_node import _to_category
 from app.graph.research import research_category
 from app.services.city_profiles import normalize_city_slug
@@ -84,6 +89,7 @@ class ResumeRequest(BaseModel):
 
 class SessionResponse(BaseModel):
     session_id: str
+    trip_id: UUID
 
 
 class SwapItinerarySlotRequest(BaseModel):
@@ -97,6 +103,7 @@ class CityAmbiguityResponse(BaseModel):
 
 class BriefStateResponse(BaseModel):
     session_id: str
+    trip_id: UUID | None = None
     phase: Literal[
         "category_select", "venue_select", "itinerary", "in_progress"
     ]
@@ -203,6 +210,7 @@ def _to_sse_event(raw: dict) -> SSEEvent | None:
                 event_type="node_complete",
                 node_name=name,
                 message=f"Got {len(recs)} lead(s) worth looking at.",
+                payload=HitlPayload(recommendations=recs),
             )
 
         # Generic completion for all other surfaced nodes
@@ -373,7 +381,7 @@ async def start_brief(req: BriefRequest):
     if match is None:
         raise RuntimeError("Resolved city response did not include a match")
 
-    await create_trip(
+    trip_record = await create_trip(
         destination_raw=req.destination,
         destination_place_id=match.google_place_id,
         destination_formatted=match.formatted_address,
@@ -388,7 +396,7 @@ async def start_brief(req: BriefRequest):
     _sessions[req.session_id] = SessionEntry()
     asyncio.create_task(_run_graph(req.session_id, req.destination, req.trip_length_days))
     logger.info("Brief started session=%s destination=%s", req.session_id, req.destination)
-    return SessionResponse(session_id=req.session_id)
+    return SessionResponse(session_id=req.session_id, trip_id=trip_record.id)
 
 
 @router.get("/brief/{session_id}/stream")
@@ -410,6 +418,7 @@ async def get_brief_state(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     selected_categories = snapshot.values.get("selected_categories")
+    trip_id = snapshot.values.get("trip_id")
     selected_category_names = (
         [
             category if isinstance(category, str) else category.name
@@ -422,6 +431,7 @@ async def get_brief_state(session_id: str):
     if pause_event is not None and pause_event.node_name == "category_select":
         return BriefStateResponse(
             session_id=session_id,
+            trip_id=trip_id,
             phase="category_select",
             categories=snapshot.values.get("categories"),
             selected_categories=selected_category_names,
@@ -429,6 +439,7 @@ async def get_brief_state(session_id: str):
     if pause_event is not None and pause_event.node_name == "venue_select":
         return BriefStateResponse(
             session_id=session_id,
+            trip_id=trip_id,
             phase="venue_select",
             selected_categories=selected_category_names,
             recommendations=snapshot.values.get("scored_recommendations"),
@@ -438,16 +449,24 @@ async def get_brief_state(session_id: str):
     if itinerary_days:
         return BriefStateResponse(
             session_id=session_id,
+            trip_id=trip_id,
             phase="itinerary",
             itinerary_days=itinerary_days,
         )
-    return BriefStateResponse(session_id=session_id, phase="in_progress")
+    return BriefStateResponse(
+        session_id=session_id,
+        trip_id=trip_id,
+        phase="in_progress",
+    )
 
 
 @router.post("/brief/{session_id}/resume", response_model=SessionResponse)
 async def resume_brief(session_id: str, req: ResumeRequest):
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Session not found")
+    trip = await get_trip_by_session_id(session_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
     _sessions[session_id].last_active = time.monotonic()
     asyncio.create_task(
         _resume_graph(session_id, req.user_selections, req.resume_type)
@@ -458,7 +477,7 @@ async def resume_brief(session_id: str, req: ResumeRequest):
         req.resume_type,
         req.user_selections,
     )
-    return SessionResponse(session_id=session_id)
+    return SessionResponse(session_id=session_id, trip_id=trip.id)
 
 
 @router.get(

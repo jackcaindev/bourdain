@@ -1,16 +1,16 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BriefEventStreamCallbacks } from '../../lib/sse'
-import type { Category } from '../../lib/types'
 import { useBriefStore } from '../../store'
-import { itineraryDay, recommendation } from '../../test/fixtures'
+import { category, itineraryDay, recommendation } from '../../test/fixtures'
 import { BriefStreamProvider } from './BriefStreamProvider'
 
 const mocks = vi.hoisted(() => ({
   construct: vi.fn(),
   close: vi.fn(),
   callbacks: null as BriefEventStreamCallbacks | null,
+  navigate: vi.fn(),
 }))
 
 vi.mock('../../lib/sse', () => ({
@@ -26,10 +26,10 @@ vi.mock('../../lib/sse', () => ({
   },
 }))
 
-const category: Category = {
-  name: 'Markets',
-  rationale: 'Where the city shops and eats.',
-}
+vi.mock('react-router', async (importOriginal) => ({
+  ...await importOriginal<typeof import('react-router')>(),
+  useNavigate: () => mocks.navigate,
+}))
 
 describe('BriefStreamProvider', () => {
   beforeEach(() => {
@@ -77,23 +77,91 @@ describe('BriefStreamProvider', () => {
 
     expect(useBriefStore.getState().availableCategories).toEqual([category])
     expect(useBriefStore.getState().progressEvents).toHaveLength(1)
-    expect(screen.getByText('Categories route')).toBeInTheDocument()
+    expect(useBriefStore.getState().venueSelectionReady).toBe(false)
+    expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/categories')
   })
 
-  it('stores recommendations and navigates on a venue pause', () => {
+  it('appends category research and only navigates on the first result', () => {
     openSession()
+
+    act(() => {
+      mocks.callbacks?.onEvent({
+        event_type: 'node_complete',
+        node_name: 'research_category',
+        message: 'Food ready.',
+        payload: { recommendations: [recommendation] },
+      })
+    })
+
+    const secondRecommendation = {
+      ...recommendation,
+      id: 'rec-2',
+      name: 'Night Market',
+      category: 'Markets',
+    }
+    act(() => {
+      mocks.callbacks?.onEvent({
+        event_type: 'node_complete',
+        node_name: 'research_category',
+        message: 'Markets ready.',
+        payload: { recommendations: [secondRecommendation] },
+      })
+    })
+
+    expect(useBriefStore.getState().recommendations).toEqual([
+      recommendation,
+      secondRecommendation,
+    ])
+    expect(mocks.navigate).toHaveBeenCalledOnce()
+    expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/select')
+  })
+
+  it('deduplicates category research recommendations by id', () => {
+    openSession()
+
+    act(() => {
+      mocks.callbacks?.onEvent({
+        event_type: 'node_complete',
+        node_name: 'research_category',
+        message: 'Food ready.',
+        payload: { recommendations: [recommendation] },
+      })
+      mocks.callbacks?.onEvent({
+        event_type: 'node_complete',
+        node_name: 'research_category',
+        message: 'Food replanned.',
+        payload: { recommendations: [{ ...recommendation, name: 'Updated Cafe' }] },
+      })
+    })
+
+    expect(useBriefStore.getState().recommendations).toEqual([
+      { ...recommendation, name: 'Updated Cafe' },
+    ])
+  })
+
+  it('hard-replaces recommendations and enables selection on a venue pause', () => {
+    openSession()
+    useBriefStore.getState().appendRecommendations([recommendation])
+    const authoritativeRecommendation = {
+      ...recommendation,
+      id: 'rec-final',
+      name: 'Final Cafe',
+    }
 
     act(() => {
       mocks.callbacks?.onEvent({
         event_type: 'hitl_pause',
         node_name: 'venue_select',
         message: 'Choose venues.',
-        payload: { recommendations: [recommendation] },
+        payload: { recommendations: [authoritativeRecommendation] },
       })
     })
 
-    expect(useBriefStore.getState().recommendations).toEqual([recommendation])
-    expect(screen.getByText('Selection route')).toBeInTheDocument()
+    expect(useBriefStore.getState().recommendations).toEqual([
+      authoritativeRecommendation,
+    ])
+    expect(useBriefStore.getState().venueSelectionReady).toBe(true)
+    expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/select')
   })
 
   it('stores the itinerary, navigates, and closes on assembly completion', () => {
@@ -109,7 +177,7 @@ describe('BriefStreamProvider', () => {
     })
 
     expect(useBriefStore.getState().itineraryDays).toEqual([itineraryDay])
-    expect(screen.getByText('Itinerary route')).toBeInTheDocument()
+    expect(mocks.navigate).toHaveBeenCalledWith('/brief/session/itinerary')
     expect(mocks.close).toHaveBeenCalledOnce()
   })
 

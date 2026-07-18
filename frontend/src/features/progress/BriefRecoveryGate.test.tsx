@@ -30,6 +30,7 @@ describe('BriefRecoveryGate', () => {
   it('fetches and populates an empty store from the URL session', async () => {
     vi.mocked(fetchBriefState).mockResolvedValue({
       session_id: 'session',
+      trip_id: 'trip',
       phase: 'venue_select',
       categories: null,
       selected_categories: ['Food'],
@@ -46,9 +47,11 @@ describe('BriefRecoveryGate', () => {
     expect(fetchBriefState).toHaveBeenCalledWith('session')
     expect(useBriefStore.getState()).toMatchObject({
       sessionId: 'session',
+      tripId: 'trip',
       availableCategories: [],
       selectedCategories: ['Food'],
       recommendations: [recommendation],
+      venueSelectionReady: true,
       itineraryDays: [],
     })
   })

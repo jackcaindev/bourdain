@@ -8,12 +8,20 @@ export function SelectionScreen() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
   const recommendations = useBriefStore((state) => state.recommendations)
+  const venueSelectionReady = useBriefStore(
+    (state) => state.venueSelectionReady,
+  )
   const selectedCategories = useBriefStore((state) => state.selectedCategories)
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set(recommendations.map((recommendation) => recommendation.id)),
+  const [removedIds, setRemovedIds] = useState(
+    () => new Set<string>(),
   )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const selectedIds = new Set(
+    recommendations
+      .filter((recommendation) => !removedIds.has(recommendation.id))
+      .map((recommendation) => recommendation.id),
+  )
 
   const recommendationsByCategory = new Map<string, typeof recommendations>()
   for (const recommendation of recommendations) {
@@ -34,7 +42,7 @@ export function SelectionScreen() {
     ),
   ]
 
-  if (!sessionId || recommendations.length === 0) {
+  if (!sessionId) {
     return (
       <main className="recovery-state">
         <p className="eyebrow">SELECTIONS UNAVAILABLE</p>
@@ -44,11 +52,24 @@ export function SelectionScreen() {
     )
   }
 
+  if (recommendations.length === 0 && !venueSelectionReady) {
+    return (
+      <main className="content-page selection-page">
+        <header className="section-heading selection-heading">
+          <div>
+            <p className="eyebrow">THE SHORTLIST</p>
+            <h1>Still gathering results…</h1>
+          </div>
+        </header>
+      </main>
+    )
+  }
+
   function setSelected(id: string, selected: boolean) {
-    setSelectedIds((current) => {
+    setRemovedIds((current) => {
       const next = new Set(current)
-      if (selected) next.add(id)
-      else next.delete(id)
+      if (selected) next.delete(id)
+      else next.add(id)
       return next
     })
     setError(null)
@@ -56,7 +77,7 @@ export function SelectionScreen() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!sessionId) return
+    if (!sessionId || !venueSelectionReady) return
 
     setSubmitting(true)
     setError(null)
@@ -115,9 +136,13 @@ export function SelectionScreen() {
             <button
               className="primary-button"
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !venueSelectionReady}
             >
-              {submitting ? 'ASSEMBLING…' : 'BUILD THE ITINERARY'}
+              {submitting
+                ? 'ASSEMBLING…'
+                : venueSelectionReady
+                  ? 'BUILD THE ITINERARY'
+                  : 'STILL GATHERING…'}
             </button>
           </div>
         </footer>
